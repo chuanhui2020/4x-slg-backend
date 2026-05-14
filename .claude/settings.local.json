@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"rpc:master\\\\|rpc:pod\")",
+      "Bash(xargs grep -l \"serverId\\\\|server.*id\")",
+      "Bash(xargs grep -l \"PlayerSession\")",
+      "Bash(xargs grep -l \"WebSocket\\\\|websocket\")",
+      "Bash(xargs grep -l \"StreamPublisher\\\\|StreamConsumer\")",
+      "Bash(xargs grep -l \"currentSceneServerId\\\\|setCurrentSceneServerId\")",
+      "Bash(xargs grep -l \"cross.*server\\\\|server.*cross\" -i)",
+      "Bash(xargs grep -l \"ChangeType\\\\|GridId\")",
+      "Bash(xargs grep -l \"ChangeType\")",
+      "Bash(xargs grep -l \"isMaster\")",
+      "Bash(xargs grep -l \"tell.*ViewEventMsg\\\\|ViewEventMsg\")",
+      "Bash(xargs grep -l \"RpcTransport\\\\|RpcMessageHandler\")",
+      "Bash(mvn compile *)",
+      "Bash(java -version)",
+      "Bash(gh auth *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
+    ]
+  }
+}

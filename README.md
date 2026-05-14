@@ -21,35 +21,35 @@
 ## 架构总览
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Master Pod (1个)                          │
-│                                                                 │
-│  ActorSystem                                                    │
-│  ├── PlayerActor-* (连接到本 Pod 的玩家)                          │
-│  ├── GuildActor-* (per guild, TTL 缓存)                         │
-│  └── MapSceneActor                                              │
-│        ├── AreaActor-1 ~ N (per area, 75x75 格子)               │
-│        ├── MarchSupervisor → MarchActor-* (per 行军)            │
-│        ├── RallySupervisor → RallyActor-* (per 集结)            │
-│        └── EventSupervisor                                      │
-│              ├── WorldBossActor-*                                │
-│              └── GuildWarActor-*                                 │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                      Master Pod (1个)                          │
+│                                                               │
+│  ActorSystem                                                  │
+│  ├── PlayerActor-* (连接到本Pod的玩家)                        │
+│  ├── GuildActor-* (per guild, TTL缓存)                        │
+│  └── MapSceneActor                                            │
+│        ├── AreaActor-1~N (per area, 75x75格子)                │
+│        ├── MarchSupervisor -> MarchActor-* (per行军)          │
+│        ├── RallySupervisor -> RallyActor-* (per集结)          │
+│        └── EventSupervisor                                    │
+│              ├── WorldBossActor-*                              │
+│              └── GuildWarActor-*                               │
+└───────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────┐
-│                     Slave Pod (N个, HPA)                         │
-│                                                                 │
-│  ActorSystem                                                    │
-│  └── PlayerActor-* (连接到本 Pod 的玩家)                          │
-│        - 读操作本地处理                                           │
-│        - 写操作 RPC 到 Master                                    │
-│        - 视野推送：消费 Redis Stream                              │
-└─────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                    Slave Pod (N个, HPA)                        │
+│                                                               │
+│  ActorSystem                                                  │
+│  └── PlayerActor-* (连接到本Pod的玩家)                        │
+│        - 读操作本地处理                                       │
+│        - 写操作RPC到Master                                    │
+│        - 视野推送: 消费Redis Stream                           │
+└───────────────────────────────────────────────────────────────┘
 
-通信路径：
-  Slave → Master:  Redis Stream (rpc:master:{serverId})
-  Master → Slave:  Redis Stream (rpc:pod:{podId})
-  视野推送:        Redis Stream (scene:change:{serverId}:{areaId})
+通信路径:
+  Slave  -> Master:  Redis Stream (rpc:master:{serverId})
+  Master -> Slave:   Redis Stream (rpc:pod:{podId})
+  视野推送:          Redis Stream (scene:change:{serverId}:{areaId})
 ```
 
 ## 核心特性

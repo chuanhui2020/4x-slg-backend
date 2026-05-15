@@ -519,10 +519,10 @@ heartbeatAt  = 1709999995000
 <td rowspan="5"><strong>P1</strong><br/>gRPC 写请求</td>
 <td colspan="3"></td>
 </tr>
-<tr><td>Master gRPC Service</td><td>增加统一命令入口</td><td>待开始</td></tr>
-<tr><td>Slave 写请求</td><td>通过 gRPC 调 Master</td><td>待开始</td></tr>
-<tr><td>异步结果</td><td>行军到达、战斗结果继续走 Redis Stream 回玩家所在 Pod</td><td>待开始</td></tr>
-<tr><td>幂等</td><td>所有写请求加入 <code>requestId</code></td><td>待开始</td></tr>
+<tr><td>Master gRPC Service</td><td>MasterGrpcServer + MasterCommandServiceImpl + CommandDispatcher，统一命令入口</td><td>✅ 完成</td></tr>
+<tr><td>Slave 写请求</td><td>MasterGrpcClient + RemoteActorInvoker 自动选择 gRPC（Master Actor）或 Stream（Player Pod）</td><td>✅ 完成</td></tr>
+<tr><td>异步结果</td><td>ReliableEventPublisher + ReliableEventConsumer，consumer group + XACK</td><td>✅ 完成</td></tr>
+<tr><td>AOI 广播</td><td>RedisPubSubPublisher + RedisPubSubConsumer 替代 Stream，fire-and-forget</td><td>✅ 完成</td></tr>
 <tr>
 <td rowspan="5"><strong>P2</strong><br/>AOI 可靠化</td>
 <td colspan="3"></td>

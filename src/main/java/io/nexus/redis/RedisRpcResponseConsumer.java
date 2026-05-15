@@ -2,7 +2,7 @@ package io.nexus.actor.redis;
 
 /**
  * Ask 响应消息格式。
- * 由 RedisPodConsumer 统一消费。
+ * 保留用于向后兼容（跨服通信场景）。
  */
 public class RedisRpcResponseConsumer {
 

@@ -1,6 +1,11 @@
 package io.nexus.actor;
 
+import io.nexus.actor.grpc.CommandDispatcher;
+import io.nexus.actor.grpc.MasterGrpcClient;
+import io.nexus.actor.grpc.MasterGrpcServer;
 import io.nexus.actor.lifecycle.GracefulShutdown;
+import io.nexus.actor.redis.ReliableEventConsumer;
+import io.nexus.actor.redis.ReliableEventPublisher;
 import io.nexus.actor.registry.ActorRegistry;
 import io.nexus.actor.role.ServerRoleProvider;
 import io.nexus.actor.router.ActorRouter;
@@ -13,8 +18,15 @@ import io.nexus.actor.serialize.RpcSerializer;
 import org.apache.pekko.actor.typed.ActorSystem;
 import org.apache.pekko.actor.typed.Behavior;
 import org.apache.pekko.actor.typed.javadsl.Behaviors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
 
 public class ActorFramework {
+
+    private static final Logger log = LoggerFactory.getLogger(ActorFramework.class);
+    private static final int DEFAULT_GRPC_PORT = 9090;
 
     private final ActorSystem<Void> system;
     private final ActorRegistry registry;
@@ -23,6 +35,14 @@ public class ActorFramework {
     private final RpcSerializer serializer;
     private final RpcMessageHandler rpcMessageHandler;
     private final GracefulShutdown gracefulShutdown;
+
+    // Master components
+    private MasterGrpcServer grpcServer;
+    private ReliableEventPublisher reliableEventPublisher;
+
+    // Slave components
+    private MasterGrpcClient grpcClient;
+    private ReliableEventConsumer reliableEventConsumer;
 
     private ActorFramework(ActorSystem<Void> system, ActorRegistry registry, ActorRouter router,
                             ServerRoleProvider roleProvider, RpcSerializer serializer,
@@ -47,11 +67,47 @@ public class ActorFramework {
 
         ActorRegistry registry = new ActorRegistry();
         LocalActorInvoker local = new LocalActorInvoker(registry, system);
-        RemoteActorInvoker remote = new RemoteActorInvoker(rpcTransport);
+
+        MasterGrpcClient grpcClient = null;
+        if (!roleProvider.isMaster()) {
+            String masterAddr = System.getenv("MASTER_GRPC_ADDR");
+            if (masterAddr == null) masterAddr = "game-master:9090";
+            grpcClient = new MasterGrpcClient(masterAddr, roleProvider.getServerId(), roleProvider.getPodId());
+        }
+
+        RemoteActorInvoker remote = new RemoteActorInvoker(rpcTransport, grpcClient, serializer);
         ActorRouter router = new ActorRouter(local, remote, roleProvider);
         RpcMessageHandler rpcHandler = new RpcMessageHandler(registry, serializer);
 
-        return new ActorFramework(system, registry, router, roleProvider, serializer, rpcHandler);
+        ActorFramework framework = new ActorFramework(system, registry, router, roleProvider, serializer, rpcHandler);
+        framework.grpcClient = grpcClient;
+        return framework;
+    }
+
+    /**
+     * Master: 启动 gRPC Server + CommandDispatcher
+     */
+    public void startGrpcServer() throws IOException {
+        if (!roleProvider.isMaster()) {
+            log.warn("startGrpcServer called on non-master pod, skipping");
+            return;
+        }
+        String portEnv = System.getenv("GRPC_PORT");
+        int port = portEnv != null ? Integer.parseInt(portEnv) : DEFAULT_GRPC_PORT;
+
+        CommandDispatcher dispatcher = new CommandDispatcher(
+                registry, router, serializer, system, roleProvider.getServerId());
+        grpcServer = new MasterGrpcServer(port, dispatcher);
+        grpcServer.start();
+    }
+
+    public void setReliableEventPublisher(ReliableEventPublisher publisher) {
+        this.reliableEventPublisher = publisher;
+    }
+
+    public void setReliableEventConsumer(ReliableEventConsumer consumer) {
+        this.reliableEventConsumer = consumer;
+        consumer.start();
     }
 
     public ActorSystem<Void> getSystem() { return system; }
@@ -68,11 +124,14 @@ public class ActorFramework {
 
     public GracefulShutdown getGracefulShutdown() { return gracefulShutdown; }
 
-    public void handleIncomingRpc(byte[] data) {
-        rpcMessageHandler.handleIncoming(data);
-    }
+    public ReliableEventPublisher getReliableEventPublisher() { return reliableEventPublisher; }
+
+    public MasterGrpcClient getGrpcClient() { return grpcClient; }
 
     public void shutdown() {
+        if (grpcServer != null) grpcServer.stop();
+        if (grpcClient != null) grpcClient.shutdown();
+        if (reliableEventConsumer != null) reliableEventConsumer.stop();
         gracefulShutdown.shutdown(java.time.Duration.ofSeconds(10));
     }
 }

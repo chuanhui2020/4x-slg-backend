@@ -15,10 +15,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Pod 级统一消息消费者。
- * 消费 "rpc:pod:{serverId}:{podId}" 上的消息，包括：
- * - 来自其他 Pod 的 tell 消息（ActorEnvelope）
- * - ask 响应消息（AskResponse）
+ * Pod 级消息消费者（保留用于向后兼容）。
+ * 主要场景：跨服 Master 发给本服 Slave 的 tell 消息。
+ * 新架构下，同服通信优先走 ReliableEventConsumer（关键变更）或 Pub/Sub（AOI）。
  */
 public class RedisPodConsumer {
 
@@ -72,7 +71,7 @@ public class RedisPodConsumer {
                             if ("resp".equals(type)) {
                                 processResponse(bytes);
                             } else {
-                                processTell(bytes);
+                                messageHandler.handleIncoming(bytes);
                             }
                         }
                     }
@@ -86,14 +85,6 @@ public class RedisPodConsumer {
         }
     }
 
-    private void processTell(byte[] data) {
-        try {
-            messageHandler.handleIncoming(data);
-        } catch (Exception e) {
-            log.error("Failed to process pod tell message", e);
-        }
-    }
-
     private void processResponse(byte[] data) {
         try {
             RedisRpcResponseConsumer.AskResponse response = serializer.deserialize(data, RedisRpcResponseConsumer.AskResponse.class);
@@ -101,7 +92,7 @@ public class RedisPodConsumer {
                 rpcTransport.handleAskResponse(response.requestId(), response.result());
             }
         } catch (Exception e) {
-            log.error("Failed to process pod ask response", e);
+            log.error("Failed to process ask response", e);
         }
     }
 }

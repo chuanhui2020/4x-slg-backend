@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package game.rpc;
+
+option java_multiple_files = true;
+option java_package = "io.nexus.actor.grpc.proto";
+
+service MasterCommandService {
+  rpc Execute(CommandRequest) returns (CommandResponse);
+}
+
+message ActorAddress {
+  string type      = 1;
+  int64  id        = 2;
+  int32  server_id = 3;
+  string pod_id    = 4;
+}
+
+message CommandRequest {
+  string       request_id     = 1;
+  int64        player_id      = 2;
+  int32        server_id      = 3;
+  string       source_pod_id  = 4;
+  string       command_type   = 5;
+  bytes        payload        = 6;
+  ActorAddress reply_to       = 7;
+  int64        deadline_ms    = 8;
+}
+
+message CommandResponse {
+  string request_id    = 1;
+  bool   success       = 2;
+  string error_code    = 3;
+  string error_message = 4;
+  bytes  payload       = 5;
+}

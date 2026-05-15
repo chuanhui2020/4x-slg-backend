@@ -70,6 +70,15 @@ public class AreaState {
         return new PersistenceBatch(dirtyObjects, removed);
     }
 
+    public void reMarkDirty(Set<Long> dirtyIds, Set<Long> removedIds) {
+        for (long id : dirtyIds) {
+            if (objects.containsKey(id)) {
+                dirtyObjectIds.add(id);
+            }
+        }
+        removedObjectIds.addAll(removedIds);
+    }
+
     public record PersistenceBatch(Map<Long, MapObject> objects, Set<Long> removedObjectIds) {
         public boolean isEmpty() {
             return objects.isEmpty() && removedObjectIds.isEmpty();

@@ -71,9 +71,18 @@ public class AreaActor extends AbstractBehavior<AreaMessage> {
     private Receive<AreaMessage> loading() {
         return newReceiveBuilder()
                 .onMessage(AreaMessage.LoadComplete.class, msg -> {
+                    for (MapObject obj : msg.objects()) {
+                        state.addObject(obj);
+                        spatialIndex.add(obj.getId(), obj.getGridId());
+                    }
                     timers.startTimerWithFixedDelay("tick", new AreaMessage.Tick(), TICK_INTERVAL);
                     timers.startTimerWithFixedDelay("persist", new AreaMessage.Persist(), PERSIST_INTERVAL);
                     return stash.unstashAll(active());
+                })
+                .onMessage(AreaMessage.LoadFailed.class, msg -> {
+                    getContext().getLog().error("Area {} load failed, retrying", areaId, msg.cause());
+                    startAsyncLoad();
+                    return Behaviors.same();
                 })
                 .onAnyMessage(msg -> {
                     stash.stash(msg);
@@ -86,6 +95,7 @@ public class AreaActor extends AbstractBehavior<AreaMessage> {
         return newReceiveBuilder()
                 .onMessage(AreaMessage.Tick.class, this::onTick)
                 .onMessage(AreaMessage.Persist.class, this::onPersist)
+                .onMessage(AreaMessage.PersistFailed.class, this::onPersistFailed)
                 .onMessage(AreaMessage.Subscribe.class, this::onSubscribe)
                 .onMessage(AreaMessage.Unsubscribe.class, this::onUnsubscribe)
                 .onMessage(AreaMessage.UpdateSubscription.class, this::onUpdateSubscription)
@@ -119,6 +129,9 @@ public class AreaActor extends AbstractBehavior<AreaMessage> {
     private Behavior<AreaMessage> onPersist(AreaMessage.Persist msg) {
         AreaState.PersistenceBatch batch = state.drainDirty();
         if (!batch.isEmpty()) {
+            var self = getContext().getSelf();
+            Set<Long> dirtyIds = new java.util.HashSet<>(batch.objects().keySet());
+            Set<Long> removedIds = new java.util.HashSet<>(batch.removedObjectIds());
             CompletableFuture.runAsync(() -> {
                 Map<String, byte[]> entries = new HashMap<>();
                 for (var entry : batch.objects().entrySet()) {
@@ -132,8 +145,18 @@ public class AreaActor extends AbstractBehavior<AreaMessage> {
                             .map(this::cacheKey).toArray(String[]::new);
                     cache.remove(keys);
                 }
+            }).whenComplete((v, ex) -> {
+                if (ex != null) {
+                    self.tell(new AreaMessage.PersistFailed(dirtyIds, removedIds));
+                }
             });
         }
+        return Behaviors.same();
+    }
+
+    private Behavior<AreaMessage> onPersistFailed(AreaMessage.PersistFailed msg) {
+        getContext().getLog().warn("Persist failed for area {}, re-marking {} dirty objects", areaId, msg.dirtyIds().size());
+        state.reMarkDirty(msg.dirtyIds(), msg.removedIds());
         return Behaviors.same();
     }
 
@@ -257,18 +280,14 @@ public class AreaActor extends AbstractBehavior<AreaMessage> {
 
     private void startAsyncLoad() {
         var self = getContext().getSelf();
-        CompletableFuture.runAsync(() -> {
-            List<MapObject> initialObjects = behavior.generateInitialObjects(areaId);
-            for (MapObject obj : initialObjects) {
-                state.addObject(obj);
-                spatialIndex.add(obj.getId(), obj.getGridId());
-            }
-        }).whenComplete((v, ex) -> {
-            if (ex != null) {
-                getContext().getLog().error("Failed to load area {}", areaId, ex);
-            }
-            self.tell(new AreaMessage.LoadComplete());
-        });
+        CompletableFuture.supplyAsync(() -> behavior.generateInitialObjects(areaId))
+                .whenComplete((objects, ex) -> {
+                    if (ex != null) {
+                        self.tell(new AreaMessage.LoadFailed(ex));
+                    } else {
+                        self.tell(new AreaMessage.LoadComplete(objects));
+                    }
+                });
     }
 
     private String cacheKey(long objectId) {

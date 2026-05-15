@@ -8,7 +8,11 @@ import java.util.Set;
 
 public sealed interface AreaMessage {
 
-    record LoadComplete() implements AreaMessage {}
+    record LoadComplete(java.util.List<MapObject> objects) implements AreaMessage {}
+
+    record LoadFailed(Throwable cause) implements AreaMessage {}
+
+    record PersistFailed(java.util.Set<Long> dirtyIds, java.util.Set<Long> removedIds) implements AreaMessage {}
 
     record Tick() implements AreaMessage {}
 

@@ -527,18 +527,18 @@ heartbeatAt  = 1709999995000
 <td rowspan="5"><strong>P2</strong><br/>AOI 可靠化</td>
 <td colspan="3"></td>
 </tr>
-<tr><td>AOI</td><td>改为 batch + chunk stream</td><td>待开始</td></tr>
+<tr><td>AOI</td><td>改为 Pub/Sub 广播（P1 已实现 RedisPubSubPublisher/Consumer）</td><td>✅ 完成</td></tr>
 <tr><td>序列化</td><td>统一 <code>List&lt;ViewEvent&gt;</code> 与单个 <code>ViewEvent</code> 的协议</td><td>待开始</td></tr>
-<tr><td>Redis Stream</td><td>使用 consumer group、ack、trim</td><td>待开始</td></tr>
-<tr><td>玩家位置表</td><td>加入 TTL 续约</td><td>待开始</td></tr>
+<tr><td>Redis Stream</td><td>ReliableEventConsumer 使用 consumer group、ack（P1 已实现）</td><td>✅ 完成</td></tr>
+<tr><td>玩家位置表</td><td>PlayerLocationRegistry：TTL 120s，续约 40s，断线删除</td><td>✅ 完成</td></tr>
 <tr>
 <td rowspan="5"><strong>P3</strong><br/>状态安全</td>
 <td colspan="3"></td>
 </tr>
-<tr><td>Actor 状态加载</td><td>异步加载完成后通过 <code>self.tell(LoadedState)</code> 修改状态，不能在 Future 回调线程直接改</td><td>待开始</td></tr>
-<tr><td>持久化</td><td>失败不能清 dirty</td><td>待开始</td></tr>
+<tr><td>Actor 状态加载</td><td>startAsyncLoad 通过 <code>self.tell(LoadComplete(objects))</code> 传回数据，不在 Future 线程改状态</td><td>✅ 完成</td></tr>
+<tr><td>持久化</td><td>失败时通过 <code>PersistFailed</code> 消息 reMarkDirty，不丢数据</td><td>✅ 完成</td></tr>
 <tr><td>长生命周期状态</td><td>行军、集结、活动必须可恢复</td><td>待开始</td></tr>
-<tr><td>冷备</td><td>增加 Master lease、epoch、状态恢复流程</td><td>待开始</td></tr>
+<tr><td>冷备</td><td>MasterLeaseManager：Redis lease + epoch + 自动 failover</td><td>✅ 完成</td></tr>
 </table>
 
 ---

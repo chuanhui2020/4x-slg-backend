@@ -7,50 +7,72 @@
 
 基于 Apache Pekko Typed 的游戏服务器 Actor 框架，专为 4X-SLG 类型游戏设计。提供完整的 Actor 生命周期管理、AOI 视野系统、跨服通信和 Master/Slave 部署模型。
 
+---
+
 ## 技术栈
 
-| 组件 | 版本 | 用途 |
-|------|------|------|
-| Java | 25 | Virtual Threads + Sealed Interface + Record |
-| Spring Boot | 4.0.0 | DI + Auto Configuration |
-| Apache Pekko Typed | 1.1.3 | Actor 模型核心 |
-| Redis (Lettuce) | Spring Boot 管理 | 场景缓存 + Stream RPC + 视野推送 |
-| AWS DynamoDB | SDK 2.31.1 | 玩家/公会持久化 |
-| Jackson | Spring Boot 管理 | RPC 消息序列化 |
+<table>
+<tr><th width="160">组件</th><th width="160">版本</th><th>用途</th></tr>
+<tr><td>Java</td><td>25</td><td>Virtual Threads + Sealed Interface + Record</td></tr>
+<tr><td>Spring Boot</td><td>4.0.0</td><td>DI + Auto Configuration</td></tr>
+<tr><td>Apache Pekko Typed</td><td>1.1.3</td><td>Actor 模型核心</td></tr>
+<tr><td>Redis (Lettuce)</td><td>Spring Boot 管理</td><td>场景缓存 + Stream RPC + 视野推送</td></tr>
+<tr><td>AWS DynamoDB</td><td>SDK 2.31.1</td><td>玩家/公会持久化</td></tr>
+<tr><td>Jackson</td><td>Spring Boot 管理</td><td>RPC 消息序列化</td></tr>
+</table>
+
+---
 
 ## 架构总览
 
-```
-+---------------------------------------------------------------+
-|                      Master Pod (1个)                         |
-|                                                               |
-|  ActorSystem                                                  |
-|  +-- PlayerActor-* (连接到本Pod的玩家)                          |
-|  +-- GuildActor-* (per guild, TTL缓存)                         |
-|  +-- MapSceneActor                                            |
-|        +-- AreaActor-1~N (per area, 75x75格子)                 |
-|        +-- MarchSupervisor -> MarchActor-* (per行军)         |
-|        +-- RallySupervisor -> RallyActor-* (per集结)        |
-|        +-- EventSupervisor                                     |
-|              +-- WorldBossActor-*                              |
-|              +-- GuildWarActor-*                               |
-+---------------------------------------------------------------+
+<table>
+<tr>
+<th width="50%">Master Pod (1个)</th>
+<th width="50%">Slave Pod (N个, HPA)</th>
+</tr>
+<tr>
+<td>
 
-+---------------------------------------------------------------+
-|                    Slave Pod (N个, HPA)                       |
-|                                                               |
-|  ActorSystem                                                  |
-|  +-- PlayerActor-* (连接到本Pod的玩家)                      |
-|        - 读操作本地处理                                      |
-|        - 写操作RPC到Master                                   |
-|        - 视野推送: 消费Redis Stream                          |
-+---------------------------------------------------------------+
-
-通信路径:
-  Slave  -> Master:  Redis Stream (rpc:master:{serverId})
-  Master -> Slave:   Redis Stream (rpc:pod:{podId})
-  视野推送:          Redis Stream (scene:change:{serverId}:{areaId})
 ```
+ActorSystem
+├── PlayerActor-* (连接到本Pod的玩家)
+├── GuildActor-* (per guild, TTL缓存)
+└── MapSceneActor
+    ├── AreaActor-1~N (per area, 75x75格子)
+    ├── MarchSupervisor
+    │   └── MarchActor-* (per行军)
+    ├── RallySupervisor
+    │   └── RallyActor-* (per集结)
+    └── EventSupervisor
+        ├── WorldBossActor-*
+        └── GuildWarActor-*
+```
+
+</td>
+<td>
+
+```
+ActorSystem
+└── PlayerActor-* (连接到本Pod的玩家)
+    ├── 读操作本地处理
+    ├── 写操作RPC到Master
+    └── 视野推送: 消费Redis Stream
+```
+
+</td>
+</tr>
+</table>
+
+**通信路径：**
+
+<table>
+<tr><th width="160">方向</th><th width="200">方式</th><th>Stream Key</th></tr>
+<tr><td>Slave → Master</td><td>Redis Stream</td><td><code>rpc:master:{serverId}</code></td></tr>
+<tr><td>Master → Slave</td><td>Redis Stream</td><td><code>rpc:pod:{podId}</code></td></tr>
+<tr><td>视野推送</td><td>Redis Stream</td><td><code>scene:change:{serverId}:{areaId}</code></td></tr>
+</table>
+
+---
 
 ## 核心特性
 
@@ -73,26 +95,32 @@ RallyActor 使用 Pekko Typed Behavior 切换实现多阶段状态机：
 
 ### 持久化策略
 
-| Actor | 存储 | 策略 |
-|-------|------|------|
-| PlayerActor | DynamoDB | 已有逻辑 |
-| GuildActor | DynamoDB + Redis | 写同步 DDB，Redis 供读 |
-| AreaActor | Redis | 1s 异步批量 |
-| MarchActor | 无 | 短生命周期 |
-| RallyActor / WorldBoss | Redis | 定期快照 |
+<table>
+<tr><th width="180">Actor</th><th width="160">存储</th><th>策略</th></tr>
+<tr><td>PlayerActor</td><td>DynamoDB</td><td>已有逻辑</td></tr>
+<tr><td>GuildActor</td><td>DynamoDB + Redis</td><td>写同步 DDB，Redis 供读</td></tr>
+<tr><td>AreaActor</td><td>Redis</td><td>1s 异步批量</td></tr>
+<tr><td>MarchActor</td><td>无</td><td>短生命周期</td></tr>
+<tr><td>RallyActor / WorldBoss</td><td>Redis</td><td>定期快照</td></tr>
+</table>
+
+---
 
 ## 扩展点
 
 框架通过 Behavior 接口留出业务扩展点：
 
-| 接口 | 职责 |
-|------|------|
-| `AreaBehavior` | 区域 tick、攻击处理、初始对象生成 |
-| `MarchBehavior` | 到达时间计算、战斗结果、路线信息 |
-| `RallyBehavior` | 加入条件、出发/到达逻辑 |
-| `GuildBehavior` | 加入/踢出条件、捐献、人数上限 |
-| `PlayerMessageHandler` | 请求处理、视野更新构建 |
-| `PlayerSession` | 网络层抽象 |
+<table>
+<tr><th width="220">接口</th><th>职责</th></tr>
+<tr><td><code>AreaBehavior</code></td><td>区域 tick、攻击处理、初始对象生成</td></tr>
+<tr><td><code>MarchBehavior</code></td><td>到达时间计算、战斗结果、路线信息</td></tr>
+<tr><td><code>RallyBehavior</code></td><td>加入条件、出发/到达逻辑</td></tr>
+<tr><td><code>GuildBehavior</code></td><td>加入/踢出条件、捐献、人数上限</td></tr>
+<tr><td><code>PlayerMessageHandler</code></td><td>请求处理、视野更新构建</td></tr>
+<tr><td><code>PlayerSession</code></td><td>网络层抽象</td></tr>
+</table>
+
+---
 
 ## 快速开始
 
@@ -119,21 +147,17 @@ var playerRef = framework.getSystem().systemActorOf(
 framework.getRegistry().register(ActorType.PLAYER, playerId, playerRef);
 ```
 
+---
+
 ## 部署模型
 
-```yaml
-# Master: 固定 1 Pod, Recreate 策略
-game-server-master:
-  replicas: 1
-  env: SERVER_ROLE=master, SERVER_ID=1
-  resources: cpu 2-4, memory 4-8Gi
+<table>
+<tr><th width="100">角色</th><th width="100">副本数</th><th width="140">环境变量</th><th width="140">资源</th><th>策略</th></tr>
+<tr><td>Master</td><td>1</td><td><code>SERVER_ROLE=master</code><br><code>SERVER_ID=1</code></td><td>CPU 2-4<br>Mem 4-8Gi</td><td>Recreate</td></tr>
+<tr><td>Slave</td><td>2-5</td><td><code>SERVER_ROLE=slave</code><br><code>SERVER_ID=1</code></td><td>CPU 1-2<br>Mem 2-4Gi</td><td>HPA by CPU 70%</td></tr>
+</table>
 
-# Slave: HPA 弹性伸缩
-game-server-slave:
-  replicas: 2-5 (HPA by CPU 70%)
-  env: SERVER_ROLE=slave, SERVER_ID=1
-  resources: cpu 1-2, memory 2-4Gi
-```
+---
 
 ## 构建
 

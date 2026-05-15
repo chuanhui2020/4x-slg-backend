@@ -561,3 +561,83 @@ heartbeatAt  = 1709999995000
 </table>
 
 不要当前阶段引入多 Master 分片。先把单 Master 做成只负责权威裁决的稳定核心，再通过 Gateway/Slave 扩连接和推送能力。等压测证明单 Master 的写入瓶颈确实到达，再考虑按地图或联盟拆 Owner。
+
+---
+
+## 未来优化：独立无状态跨服服务
+
+> 状态：规划中，待单服架构稳定后实施
+
+### 核心思路
+
+把跨服逻辑从游戏服剥离，部署为独立的 Match Service。进程只跑逻辑，状态全部外置到 Redis。
+
+<table>
+<tr><th width="120">设计原则</th><th>说明</th></tr>
+<tr><td><strong>状态外置</strong></td><td>匹配队列、对战记录、积分排行全存 Redis，进程无记忆，随时可替换</td></tr>
+<tr><td><strong>幂等 + 原子</strong></td><td>每个请求带唯一 ID，用 Redis CAS / HSETNX 保证重复请求不产生副作用</td></tr>
+<tr><td><strong>职责单一</strong></td><td>游戏服只管玩家业务，Match Service 只管跨服协调，互不干扰</td></tr>
+</table>
+
+### 通信分层
+
+<table>
+<tr><th width="220">方向</th><th width="140">通道</th><th>用途</th></tr>
+<tr><td>游戏服 → Match Service</td><td>gRPC 请求-响应</td><td>报名、取消、上报结果</td></tr>
+<tr><td>Match Service → 游戏服</td><td>Redis Stream</td><td>匹配结果、奖励发放等推送</td></tr>
+</table>
+
+### 高可用保障
+
+<table>
+<tr><th width="40">#</th><th>机制</th></tr>
+<tr><td>1</td><td>多实例部署 + L4 负载均衡，单实例挂了请求自动转移</td></tr>
+<tr><td>2</td><td>定时任务用短 TTL 分布式锁竞争执行，故障恢复秒级</td></tr>
+<tr><td>3</td><td>不存在"选主 → 空窗期 → 状态丢失"的问题</td></tr>
+</table>
+
+### 扩展方式
+
+<table>
+<tr><th width="160">瓶颈</th><th>扩展手段</th><th>影响范围</th></tr>
+<tr><td>玩家连接多</td><td>加游戏服 Slave</td><td>不影响 Match Service</td></tr>
+<tr><td>跨服活动重</td><td>加 Match Service 实例</td><td>不影响游戏服</td></tr>
+</table>
+
+### 合理性分析
+
+<table>
+<tr><th width="80">维度</th><th>评估</th></tr>
+<tr><td><strong>优势</strong></td><td>
+• 无状态 = 无 failover 空窗期，比 Master lease 方案更简单可靠<br>
+• 跨服逻辑独立演进，不影响单服稳定性<br>
+• 天然水平扩展，不需要分片策略<br>
+• Redis 作为唯一状态源，调试和运维透明
+</td></tr>
+<tr><td><strong>风险</strong></td><td>
+• Redis 成为单点（需 Redis Cluster 或 Sentinel）<br>
+• 高频操作（匹配轮询）对 Redis QPS 有压力，需评估<br>
+• 跨服战斗如果需要实时交互（非回合制），纯 Redis 状态可能延迟不够低<br>
+• 事务性操作（扣资源 + 报名）跨两个服务，需要补偿机制
+</td></tr>
+<tr><td><strong>适用场景</strong></td><td>
+• 跨服竞技场匹配（非实时，回合制结算）<br>
+• 跨服 Boss 报名 / 积分赛<br>
+• 联盟战匹配和分组<br>
+• 跨服拍卖 / 交易撮合
+</td></tr>
+<tr><td><strong>不适用</strong></td><td>
+• 需要实时同步的跨服战斗（需要独立 Battle Server 持有短期状态）<br>
+• 强一致性要求的跨服资源转移（需要分布式事务或 Saga）
+</td></tr>
+</table>
+
+### 实施前提
+
+<table>
+<tr><th width="40">#</th><th>条件</th><th width="60">状态</th></tr>
+<tr><td>1</td><td>单服 Master/Slave 架构稳定运行</td><td>进行中</td></tr>
+<tr><td>2</td><td>gRPC 通信层成熟（P1 已完成基础）</td><td>✅</td></tr>
+<tr><td>3</td><td>Redis Stream 可靠推送验证通过</td><td>✅</td></tr>
+<tr><td>4</td><td>跨服活动需求明确（具体玩法确定）</td><td>待定</td></tr>
+</table>

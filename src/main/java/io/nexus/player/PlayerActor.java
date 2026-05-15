@@ -213,10 +213,11 @@ public class PlayerActor extends AbstractBehavior<PlayerMessage> {
     }
 
     private void handleStreamData(byte[] data) {
-        ViewEvent event = messageHandler.deserializeViewEvent(data);
-        // Grid 级别过滤：只处理自己视野内的 Grid 事件
-        if (aoiManager.isGridVisible(event.gridId())) {
-            getContext().getSelf().tell(new PlayerMessage.ViewEventMsg(event));
+        List<ViewEvent> events = messageHandler.deserializeViewEvents(data);
+        for (ViewEvent event : events) {
+            if (aoiManager.isGridVisible(event.gridId())) {
+                getContext().getSelf().tell(new PlayerMessage.ViewEventMsg(event));
+            }
         }
     }
 }

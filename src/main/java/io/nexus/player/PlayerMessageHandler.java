@@ -12,5 +12,5 @@ public interface PlayerMessageHandler {
 
     byte[] buildViewUpdate(List<ViewEvent> events);
 
-    ViewEvent deserializeViewEvent(byte[] data);
+    List<ViewEvent> deserializeViewEvents(byte[] data);
 }

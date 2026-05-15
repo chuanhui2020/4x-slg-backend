@@ -528,7 +528,7 @@ heartbeatAt  = 1709999995000
 <td colspan="3"></td>
 </tr>
 <tr><td>AOI</td><td>改为 Pub/Sub 广播（P1 已实现 RedisPubSubPublisher/Consumer）</td><td>✅ 完成</td></tr>
-<tr><td>序列化</td><td>统一 <code>List&lt;ViewEvent&gt;</code> 与单个 <code>ViewEvent</code> 的协议</td><td>待开始</td></tr>
+<tr><td>序列化</td><td>统一为 <code>List&lt;ViewEvent&gt;</code> batch 序列化/反序列化</td><td>✅ 完成</td></tr>
 <tr><td>Redis Stream</td><td>ReliableEventConsumer 使用 consumer group、ack（P1 已实现）</td><td>✅ 完成</td></tr>
 <tr><td>玩家位置表</td><td>PlayerLocationRegistry：TTL 120s，续约 40s，断线删除</td><td>✅ 完成</td></tr>
 <tr>

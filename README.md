@@ -82,7 +82,7 @@ ActorSystem
 
 ### AOI 视野系统
 
-地图 1000×1000 格子，划分为 169 个区域（每个 75×75）。支持视口订阅、移动 diff 算、Grid 级精确过滤。Master 直接 Actor 通知，Slave 通过 Redis Stream 消费。
+地图 1000×1000 格子，划分为 196 个区域（每个 75×75，14×14 布局）。支持视口订阅、移动 diff 算、Grid 级精确过滤。Master 直接 Actor 通知，Slave 通过 Redis Stream 消费。
 
 ### 行军系统（无 Tick）
 
@@ -136,7 +136,7 @@ if (framework.getRoleProvider().isMaster()) {
             streamPublisher, serializer, serverId,
             areaBehavior, marchBehavior, rallyBehavior),
         "map-scene");
-    sceneRef.tell(new SceneMessage.Init(169));
+    sceneRef.tell(new SceneMessage.Init(196));
 }
 
 // 玩家连接时创建 PlayerActor

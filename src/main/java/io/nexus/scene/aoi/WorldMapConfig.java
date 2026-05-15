@@ -40,12 +40,12 @@ public class WorldMapConfig {
     public int getTotalAreas() { return totalAreas; }
 
     /**
-     * 根据格子坐标计算所属区域 ID（从 1 开始）
+     * 根据格子坐标计算所属区域 ID（从 0 开始）
      */
     public int gridToAreaId(int gridX, int gridY) {
         int col = gridX / areaWidth;
         int row = gridY / areaHeight;
-        return row * areasPerRow + col + 1;
+        return row * areasPerRow + col;
     }
 
     /**
@@ -59,9 +59,8 @@ public class WorldMapConfig {
      * 获取区域的左下角坐标
      */
     public int[] getAreaOrigin(int areaId) {
-        int idx = areaId - 1;
-        int col = idx % areasPerRow;
-        int row = idx / areasPerRow;
+        int col = areaId % areasPerRow;
+        int row = areaId / areasPerRow;
         return new int[]{col * areaWidth, row * areaHeight};
     }
 
@@ -82,7 +81,7 @@ public class WorldMapConfig {
      * 判断区域 ID 是否有效
      */
     public boolean isValidAreaId(int areaId) {
-        return areaId >= 1 && areaId <= totalAreas;
+        return areaId >= 0 && areaId < totalAreas;
     }
 
     /**

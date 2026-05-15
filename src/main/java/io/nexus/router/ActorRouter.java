@@ -42,7 +42,7 @@ public class ActorRouter implements ActorInvoker {
             return false;
         }
         return switch (target.type()) {
-            case PLAYER -> true;
+            case PLAYER -> target.podId() == null || target.podId().equals(roleProvider.getPodId());
             case GUILD, AREA, MARCH_SUPERVISOR, RALLY_SUPERVISOR, EVENT, MAP_SCENE, WORLD_BOSS, GUILD_WAR ->
                     roleProvider.isMaster();
         };

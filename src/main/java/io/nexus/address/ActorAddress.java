@@ -1,9 +1,13 @@
 package io.nexus.actor.address;
 
-public record ActorAddress(ActorType type, long id, int serverId) {
+public record ActorAddress(ActorType type, long id, int serverId, String podId) {
 
-    public static ActorAddress player(long playerId, int serverId) {
-        return new ActorAddress(ActorType.PLAYER, playerId, serverId);
+    public ActorAddress(ActorType type, long id, int serverId) {
+        this(type, id, serverId, null);
+    }
+
+    public static ActorAddress player(long playerId, int serverId, String podId) {
+        return new ActorAddress(ActorType.PLAYER, playerId, serverId, podId);
     }
 
     public static ActorAddress guild(long guildId, int serverId) {

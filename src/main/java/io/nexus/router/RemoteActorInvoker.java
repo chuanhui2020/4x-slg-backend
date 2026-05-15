@@ -1,6 +1,7 @@
 package io.nexus.actor.router;
 
 import io.nexus.actor.address.ActorAddress;
+import io.nexus.actor.address.ActorType;
 import io.nexus.actor.rpc.ActorEnvelope;
 import io.nexus.actor.rpc.RpcTransport;
 
@@ -18,7 +19,11 @@ public class RemoteActorInvoker implements ActorInvoker {
     @Override
     public void tell(ActorAddress target, Object message) {
         ActorEnvelope envelope = new ActorEnvelope(target, message);
-        transport.sendTell(target.serverId(), envelope);
+        if (target.type() == ActorType.PLAYER && target.podId() != null) {
+            transport.sendTellToPod(target.serverId(), target.podId(), envelope);
+        } else {
+            transport.sendTell(target.serverId(), envelope);
+        }
     }
 
     @Override

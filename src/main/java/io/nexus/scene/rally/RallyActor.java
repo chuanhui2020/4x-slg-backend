@@ -75,7 +75,7 @@ public class RallyActor extends AbstractBehavior<RallyMessage> {
             return Behaviors.same();
         }
         behavior.onJoin(state, msg.playerId(), msg.troops());
-        state.addMember(msg.playerId(), msg.troops());
+        state.addMember(msg.playerId(), msg.podId(), msg.troops());
         router.tell(msg.replyTo(), new RallyMessage.JoinResult(state.getRallyId(), true, null));
 
         if (state.isFull()) {
@@ -139,7 +139,7 @@ public class RallyActor extends AbstractBehavior<RallyMessage> {
         state.setPhase(RallyState.Phase.DISMISSED);
         behavior.onDismiss(state);
         for (var member : state.getMembers().values()) {
-            router.tell(ActorAddress.player(member.playerId(), serverId),
+            router.tell(ActorAddress.player(member.playerId(), serverId, member.podId()),
                     new RallyMessage.RallyDismissed(state.getRallyId()));
         }
         return Behaviors.stopped();

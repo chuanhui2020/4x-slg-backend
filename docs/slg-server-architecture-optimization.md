@@ -504,41 +504,41 @@ heartbeatAt  = 1709999995000
 ## 当前代码优先修复项
 
 <table>
-<tr><th width="60">优先级</th><th width="160">主题</th><th>具体内容</th></tr>
+<tr><th width="60">优先级</th><th width="160">主题</th><th>具体内容</th><th width="60">状态</th></tr>
 <tr>
 <td rowspan="7"><strong>P0</strong><br/>架构闭环</td>
-<td colspan="2"></td>
+<td colspan="3"></td>
 </tr>
-<tr><td><code>ActorAddress</code></td><td>增加 <code>podId</code></td></tr>
-<tr><td><code>ServerRoleProvider</code></td><td>增加 <code>podId</code></td></tr>
-<tr><td><code>ActorRouter</code></td><td>修正 Player 路由逻辑，不能再 <code>case PLAYER -> true</code></td></tr>
-<tr><td>Master 启动范围</td><td>只启动场景/联盟/活动 Actor</td></tr>
-<tr><td>Slave 启动范围</td><td>只启动网络层、PlayerActor、AOI 订阅和推送</td></tr>
-<tr><td>Area 编号</td><td>统一 <code>1000x1000 / 75x75</code> = <code>196</code> 个 Area（非 169），统一 0-based 或 1-based</td></tr>
+<tr><td><code>ActorAddress</code></td><td>增加 <code>podId</code> 字段，<code>player()</code> 工厂方法必须传入 podId</td><td>✅ 完成</td></tr>
+<tr><td><code>ServerRoleProvider</code></td><td>增加 <code>podId</code>，从 <code>POD_ID</code> 环境变量读取</td><td>✅ 完成</td></tr>
+<tr><td><code>ActorRouter</code></td><td>PLAYER 路由改为比较 <code>podId</code>，不再无条件 local</td><td>✅ 完成</td></tr>
+<tr><td>RpcTransport</td><td>新增 <code>sendTellToPod</code>，RemoteActorInvoker 按 target 类型选择路由；新增 <code>RedisPodConsumer</code> 统一消费 Pod 级 tell + response</td><td>✅ 完成</td></tr>
+<tr><td>Area 编号</td><td>统一 0-based，<code>1000x1000 / 75x75</code> = <code>196</code> 个 Area</td><td>✅ 完成</td></tr>
+<tr><td>Master/Slave 启动范围</td><td>Master 只启动场景/联盟/活动 Actor；Slave 只启动网络层、PlayerActor、AOI</td><td>待验证</td></tr>
 <tr>
 <td rowspan="5"><strong>P1</strong><br/>gRPC 写请求</td>
-<td colspan="2"></td>
+<td colspan="3"></td>
 </tr>
-<tr><td>Master gRPC Service</td><td>增加统一命令入口</td></tr>
-<tr><td>Slave 写请求</td><td>通过 gRPC 调 Master</td></tr>
-<tr><td>异步结果</td><td>行军到达、战斗结果继续走 Redis Stream 回玩家所在 Pod</td></tr>
-<tr><td>幂等</td><td>所有写请求加入 <code>requestId</code></td></tr>
+<tr><td>Master gRPC Service</td><td>增加统一命令入口</td><td>待开始</td></tr>
+<tr><td>Slave 写请求</td><td>通过 gRPC 调 Master</td><td>待开始</td></tr>
+<tr><td>异步结果</td><td>行军到达、战斗结果继续走 Redis Stream 回玩家所在 Pod</td><td>待开始</td></tr>
+<tr><td>幂等</td><td>所有写请求加入 <code>requestId</code></td><td>待开始</td></tr>
 <tr>
 <td rowspan="5"><strong>P2</strong><br/>AOI 可靠化</td>
-<td colspan="2"></td>
+<td colspan="3"></td>
 </tr>
-<tr><td>AOI</td><td>改为 batch + chunk stream</td></tr>
-<tr><td>序列化</td><td>统一 <code>List&lt;ViewEvent&gt;</code> 与单个 <code>ViewEvent</code> 的协议</td></tr>
-<tr><td>Redis Stream</td><td>使用 consumer group、ack、trim</td></tr>
-<tr><td>玩家位置表</td><td>加入 TTL 续约</td></tr>
+<tr><td>AOI</td><td>改为 batch + chunk stream</td><td>待开始</td></tr>
+<tr><td>序列化</td><td>统一 <code>List&lt;ViewEvent&gt;</code> 与单个 <code>ViewEvent</code> 的协议</td><td>待开始</td></tr>
+<tr><td>Redis Stream</td><td>使用 consumer group、ack、trim</td><td>待开始</td></tr>
+<tr><td>玩家位置表</td><td>加入 TTL 续约</td><td>待开始</td></tr>
 <tr>
 <td rowspan="5"><strong>P3</strong><br/>状态安全</td>
-<td colspan="2"></td>
+<td colspan="3"></td>
 </tr>
-<tr><td>Actor 状态加载</td><td>异步加载完成后通过 <code>self.tell(LoadedState)</code> 修改状态，不能在 Future 回调线程直接改</td></tr>
-<tr><td>持久化</td><td>失败不能清 dirty</td></tr>
-<tr><td>长生命周期状态</td><td>行军、集结、活动必须可恢复</td></tr>
-<tr><td>冷备</td><td>增加 Master lease、epoch、状态恢复流程</td></tr>
+<tr><td>Actor 状态加载</td><td>异步加载完成后通过 <code>self.tell(LoadedState)</code> 修改状态，不能在 Future 回调线程直接改</td><td>待开始</td></tr>
+<tr><td>持久化</td><td>失败不能清 dirty</td><td>待开始</td></tr>
+<tr><td>长生命周期状态</td><td>行军、集结、活动必须可恢复</td><td>待开始</td></tr>
+<tr><td>冷备</td><td>增加 Master lease、epoch、状态恢复流程</td><td>待开始</td></tr>
 </table>
 
 ---

@@ -1,5 +1,6 @@
 package io.nexus.actor.redis;
 
+import io.nexus.actor.rpc.ActorEnvelope;
 import io.nexus.actor.rpc.RpcMessageHandler;
 import io.nexus.actor.serialize.RpcSerializer;
 import org.slf4j.Logger;
@@ -16,7 +17,9 @@ import java.util.concurrent.Executors;
 
 /**
  * Master Pod 的 RPC Stream 消费者。
- * 消费 "rpc:master:{serverId}" 上的消息，反序列化后路由到本地 Actor。
+ * 消费 "rpc:master:{serverId}" 上的消息：
+ * - tell 消息（ActorEnvelope）直接 dispatch
+ * - ask 消息（AskEnvelope）dispatch 后将结果回包到调用方 Pod
  */
 public class RedisRpcConsumer {
 
@@ -25,16 +28,18 @@ public class RedisRpcConsumer {
     private final StringRedisTemplate redisTemplate;
     private final RpcSerializer serializer;
     private final RpcMessageHandler messageHandler;
+    private final RedisRpcTransport rpcTransport;
     private final String streamKey;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile boolean running = false;
     private String lastId = "0";
 
     public RedisRpcConsumer(StringRedisTemplate redisTemplate, RpcSerializer serializer,
-                             RpcMessageHandler messageHandler, int serverId) {
+                            RpcMessageHandler messageHandler, RedisRpcTransport rpcTransport, int serverId) {
         this.redisTemplate = redisTemplate;
         this.serializer = serializer;
         this.messageHandler = messageHandler;
+        this.rpcTransport = rpcTransport;
         this.streamKey = "rpc:master:" + serverId;
     }
 
@@ -78,9 +83,26 @@ public class RedisRpcConsumer {
 
     private void processMessage(byte[] data) {
         try {
-            messageHandler.handleIncoming(data);
+            // Try to deserialize as AskEnvelope first
+            RedisRpcTransport.AskEnvelope askEnvelope = serializer.deserialize(data, RedisRpcTransport.AskEnvelope.class);
+            if (askEnvelope != null && askEnvelope.requestId() != null) {
+                handleAsk(askEnvelope);
+            } else {
+                messageHandler.handleIncoming(data);
+            }
         } catch (Exception e) {
             log.error("Failed to process RPC message", e);
         }
+    }
+
+    private void handleAsk(RedisRpcTransport.AskEnvelope askEnvelope) {
+        ActorEnvelope envelope = askEnvelope.envelope();
+        Object result = messageHandler.dispatchAndReturn(envelope);
+        rpcTransport.sendResponseToPod(
+                askEnvelope.replyServerId(),
+                askEnvelope.replyPodId(),
+                askEnvelope.requestId(),
+                result
+        );
     }
 }

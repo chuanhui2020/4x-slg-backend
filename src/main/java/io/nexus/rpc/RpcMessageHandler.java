@@ -34,4 +34,18 @@ public class RpcMessageHandler {
             log.warn("Actor not found for RPC dispatch: {}", target);
         }
     }
+
+    @SuppressWarnings("unchecked")
+    public Object dispatchAndReturn(ActorEnvelope envelope) {
+        var target = envelope.target();
+        var refOpt = registry.resolve(target.type(), target.id());
+        if (refOpt.isPresent()) {
+            ActorRef<Object> ref = (ActorRef<Object>) refOpt.get();
+            ref.tell(envelope.message());
+            return null;
+        } else {
+            log.warn("Actor not found for RPC ask dispatch: {}", target);
+            return null;
+        }
+    }
 }

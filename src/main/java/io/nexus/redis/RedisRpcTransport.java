@@ -18,28 +18,28 @@ public class RedisRpcTransport implements RpcTransport {
 
     private final StringRedisTemplate redisTemplate;
     private final RpcSerializer serializer;
+    private final int serverId;
     private final String podId;
     private final Map<String, CompletableFuture<Object>> pendingAsks = new ConcurrentHashMap<>();
 
-    public RedisRpcTransport(StringRedisTemplate redisTemplate, RpcSerializer serializer) {
+    public RedisRpcTransport(StringRedisTemplate redisTemplate, RpcSerializer serializer,
+                             int serverId, String podId) {
         this.redisTemplate = redisTemplate;
         this.serializer = serializer;
-        this.podId = UUID.randomUUID().toString().substring(0, 8);
-    }
-
-    public RedisRpcTransport(StringRedisTemplate redisTemplate, RpcSerializer serializer, String podId) {
-        this.redisTemplate = redisTemplate;
-        this.serializer = serializer;
+        this.serverId = serverId;
         this.podId = podId;
     }
 
     @Override
     public void sendTell(int targetServerId, ActorEnvelope envelope) {
         String streamKey = "rpc:master:" + targetServerId;
-        byte[] payload = serializer.serialize(envelope);
-        String encoded = Base64.getEncoder().encodeToString(payload);
-        var record = StreamRecords.string(Map.of("d", encoded)).withStreamKey(streamKey);
-        redisTemplate.opsForStream().add(record);
+        publish(streamKey, serializer.serialize(envelope));
+    }
+
+    @Override
+    public void sendTellToPod(int targetServerId, String targetPodId, ActorEnvelope envelope) {
+        String streamKey = "rpc:pod:" + targetServerId + ":" + targetPodId;
+        publishWithType(streamKey, "tell", serializer.serialize(envelope));
     }
 
     @Override
@@ -49,12 +49,9 @@ public class RedisRpcTransport implements RpcTransport {
         CompletableFuture<Object> future = new CompletableFuture<>();
         pendingAsks.put(requestId, future);
 
-        AskEnvelope askEnvelope = new AskEnvelope(requestId, podId, envelope);
+        AskEnvelope askEnvelope = new AskEnvelope(requestId, serverId, podId, envelope);
         String streamKey = "rpc:master:" + targetServerId;
-        byte[] payload = serializer.serialize(askEnvelope);
-        String encoded = Base64.getEncoder().encodeToString(payload);
-        var record = StreamRecords.string(Map.of("d", encoded)).withStreamKey(streamKey);
-        redisTemplate.opsForStream().add(record);
+        publish(streamKey, serializer.serialize(askEnvelope));
 
         future.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS)
                 .whenComplete((v, ex) -> pendingAsks.remove(requestId));
@@ -73,9 +70,31 @@ public class RedisRpcTransport implements RpcTransport {
         return podId;
     }
 
-    public String getResponseStreamKey() {
-        return "rpc:pod:" + podId;
+    public int getServerId() {
+        return serverId;
     }
 
-    public record AskEnvelope(String requestId, String replyPodId, ActorEnvelope envelope) {}
+    public String getResponseStreamKey() {
+        return "rpc:pod:" + serverId + ":" + podId;
+    }
+
+    private void publish(String streamKey, byte[] payload) {
+        String encoded = Base64.getEncoder().encodeToString(payload);
+        var record = StreamRecords.string(Map.of("d", encoded)).withStreamKey(streamKey);
+        redisTemplate.opsForStream().add(record);
+    }
+
+    private void publishWithType(String streamKey, String type, byte[] payload) {
+        String encoded = Base64.getEncoder().encodeToString(payload);
+        var record = StreamRecords.string(Map.of("t", type, "d", encoded)).withStreamKey(streamKey);
+        redisTemplate.opsForStream().add(record);
+    }
+
+    public void sendResponseToPod(int targetServerId, String targetPodId, String requestId, Object result) {
+        String streamKey = "rpc:pod:" + targetServerId + ":" + targetPodId;
+        RedisRpcResponseConsumer.AskResponse response = new RedisRpcResponseConsumer.AskResponse(requestId, result);
+        publishWithType(streamKey, "resp", serializer.serialize(response));
+    }
+
+    public record AskEnvelope(String requestId, int replyServerId, String replyPodId, ActorEnvelope envelope) {}
 }

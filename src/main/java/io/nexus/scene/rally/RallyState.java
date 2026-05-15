@@ -51,13 +51,13 @@ public class RallyState {
         return members.containsKey(playerId);
     }
 
-    public void addMember(long playerId, Object troops) {
-        members.put(playerId, new RallyMember(playerId, troops));
+    public void addMember(long playerId, String podId, Object troops) {
+        members.put(playerId, new RallyMember(playerId, podId, troops));
     }
 
     public void removeMember(long playerId) {
         members.remove(playerId);
     }
 
-    public record RallyMember(long playerId, Object troops) {}
+    public record RallyMember(long playerId, String podId, Object troops) {}
 }

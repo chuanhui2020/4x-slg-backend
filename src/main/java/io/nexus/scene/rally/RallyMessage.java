@@ -10,7 +10,7 @@ public sealed interface RallyMessage {
     record Create(long initiatorId, long targetId, List<GridId> path, int maxMembers,
                   long timeoutMs, ActorAddress replyTo) implements RallyMessage {}
 
-    record Join(long playerId, Object troops, ActorAddress replyTo) implements RallyMessage {}
+    record Join(long playerId, String podId, Object troops, ActorAddress replyTo) implements RallyMessage {}
 
     record Leave(long playerId, ActorAddress replyTo) implements RallyMessage {}
 

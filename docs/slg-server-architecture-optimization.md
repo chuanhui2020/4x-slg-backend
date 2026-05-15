@@ -537,7 +537,7 @@ heartbeatAt  = 1709999995000
 </tr>
 <tr><td>Actor 状态加载</td><td>startAsyncLoad 通过 <code>self.tell(LoadComplete(objects))</code> 传回数据，不在 Future 线程改状态</td><td>✅ 完成</td></tr>
 <tr><td>持久化</td><td>失败时通过 <code>PersistFailed</code> 消息 reMarkDirty，不丢数据</td><td>✅ 完成</td></tr>
-<tr><td>长生命周期状态</td><td>行军、集结、活动必须可恢复</td><td>待开始</td></tr>
+<tr><td>长生命周期状态</td><td>MarchStateStore 持久化活跃行军，MarchSupervisor 重启时恢复，过期行军直接触发到达</td><td>✅ 完成</td></tr>
 <tr><td>冷备</td><td>MasterLeaseManager：Redis lease + epoch + 自动 failover</td><td>✅ 完成</td></tr>
 </table>
 

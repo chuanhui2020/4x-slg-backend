@@ -23,6 +23,8 @@ public interface MarchBehavior {
 
     void onIntercept(MarchState state, long attackerId, GridId point);
 
+    void onRecoveredArrival(MarchStateStore.MarchSnapshot snapshot);
+
     AreaState.MarchLineInfo toLineInfo(MarchState state);
 
     Function<GridId, Integer> gridToAreaMapper();

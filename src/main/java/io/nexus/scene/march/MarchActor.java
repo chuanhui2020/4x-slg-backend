@@ -27,6 +27,13 @@ public class MarchActor extends AbstractBehavior<MarchMessage> {
                 Behaviors.setup(ctx -> new MarchActor(ctx, timers, params, behavior, router, serverId)));
     }
 
+    public static Behavior<MarchMessage> createRecovered(long marchId, MarchMessage.Create params,
+                                                          MarchBehavior behavior, ActorRouter router,
+                                                          int serverId, Duration remainingTime) {
+        return Behaviors.withTimers(timers ->
+                Behaviors.setup(ctx -> new MarchActor(ctx, timers, marchId, params, behavior, router, serverId, remainingTime)));
+    }
+
     private MarchActor(ActorContext<MarchMessage> context, TimerScheduler<MarchMessage> timers,
                         MarchMessage.Create params, MarchBehavior behavior,
                         ActorRouter router, int serverId) {
@@ -45,6 +52,24 @@ public class MarchActor extends AbstractBehavior<MarchMessage> {
         Duration arrivalDelay = behavior.calcArrivalTime(state);
         timers.startSingleTimer("arrival", new MarchMessage.ArrivalTimeout(), arrivalDelay);
         router.tell(replyTo, new MarchMessage.MarchCreated(marchId));
+    }
+
+    private MarchActor(ActorContext<MarchMessage> context, TimerScheduler<MarchMessage> timers,
+                        long marchId, MarchMessage.Create params, MarchBehavior behavior,
+                        ActorRouter router, int serverId, Duration remainingTime) {
+        super(context);
+        this.timers = timers;
+        this.behavior = behavior;
+        this.router = router;
+        this.serverId = serverId;
+        this.replyTo = params.replyTo();
+
+        this.state = new MarchState(marchId, params.playerId(), params.path(), params.speed(),
+                params.targetId(), params.type(), params.troops());
+
+        registerLines();
+        timers.startSingleTimer("arrival", new MarchMessage.ArrivalTimeout(), remainingTime);
+        context.getLog().info("Recovered march {} with {}ms remaining", marchId, remainingTime.toMillis());
     }
 
     @Override

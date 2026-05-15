@@ -26,4 +26,6 @@ public sealed interface MarchMessage {
     record MarchFailed(String reason) implements MarchMessage {}
 
     record MarchRecalled(long marchId) implements MarchMessage {}
+
+    record MarchCompleted(long marchId) implements MarchMessage {}
 }

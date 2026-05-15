@@ -641,3 +641,86 @@ heartbeatAt  = 1709999995000
 <tr><td>3</td><td>Redis Stream 可靠推送验证通过</td><td>✅</td></tr>
 <tr><td>4</td><td>跨服活动需求明确（具体玩法确定）</td><td>待定</td></tr>
 </table>
+
+---
+
+## 未来优化：生产就绪加固
+
+> 状态：规划中，上线前必须完成标记为 🔴，压测后决定标记为 🟡
+
+### 🔴 可观测性
+
+当前没有 metrics 和 tracing，生产环境无法定位瓶颈。
+
+<table>
+<tr><th width="200">指标</th><th>来源</th><th>告警阈值建议</th></tr>
+<tr><td>gRPC 调用延迟 p99</td><td>MasterCommandServiceImpl</td><td>> 500ms</td></tr>
+<tr><td>Redis Stream consumer lag</td><td>ReliableEventConsumer pending 数</td><td>> 1000</td></tr>
+<tr><td>Actor mailbox 积压</td><td>Pekko dispatcher metrics</td><td>> 500 messages</td></tr>
+<tr><td>Pub/Sub 消息吞吐</td><td>RedisPubSubPublisher 计数</td><td>突降 50% 告警</td></tr>
+<tr><td>行军/集结活跃数量</td><td>MarchSupervisor / RallySupervisor</td><td>接近设计上限时预警</td></tr>
+<tr><td>Master lease 续约延迟</td><td>MasterLeaseManager heartbeat</td><td>> 10s 未续约</td></tr>
+</table>
+
+建议方案：Micrometer + Prometheus + Grafana，gRPC 拦截器自动采集。
+
+### 🔴 Master gRPC 背压
+
+多 Slave 同时涌入写请求（开服高峰、活动开始）时，Actor mailbox 无限堆积会导致 OOM 或延迟雪崩。
+
+<table>
+<tr><th width="120">层级</th><th>措施</th></tr>
+<tr><td>gRPC Server</td><td>设置 <code>maxConcurrentCallsPerConnection</code> 和全局并发上限</td></tr>
+<tr><td>CommandDispatcher</td><td>Semaphore 限制同时在途的 ask 数量，超限快速拒绝</td></tr>
+<tr><td>Actor</td><td>Bounded mailbox + 拒绝策略（返回 SERVER_BUSY 让 Slave 重试）</td></tr>
+<tr><td>Slave</td><td>收到 RESOURCE_EXHAUSTED / SERVER_BUSY 后指数退避重试</td></tr>
+</table>
+
+### 🔴 客户端重连状态补偿
+
+Pub/Sub fire-and-forget，玩家断线重连后丢失断线期间的 AOI 变化。
+
+<table>
+<tr><th width="120">场景</th><th>补偿策略</th></tr>
+<tr><td>断线重连（同 Slave）</td><td>重新 Subscribe 拉取全量快照</td></tr>
+<tr><td>断线重连（换 Slave）</td><td>新 Slave 重新 openMap，拉快照 + 重建订阅</td></tr>
+<tr><td>短暂网络抖动</td><td>客户端维护 lastSeq，重连后请求增量 diff</td></tr>
+<tr><td>行军/战斗结果丢失</td><td>ReliableEventConsumer 保证不丢；客户端拉取 pending results</td></tr>
+</table>
+
+### 🟡 AreaActor 内存管理
+
+196 个 Area 全部常驻内存。如果单 Area 对象数上千，总内存压力大。
+
+<table>
+<tr><th width="120">方案</th><th>说明</th><th>适用条件</th></tr>
+<tr><td>冷区域卸载</td><td>无玩家订阅的 Area 卸载到 Redis，有玩家进入时按需加载</td><td>地图大、玩家分布不均</td></tr>
+<tr><td>快照压缩</td><td>MapObject snapshot 使用 protobuf 或压缩序列化</td><td>对象数据量大</td></tr>
+<tr><td>分层存储</td><td>静态地形数据只读共享，动态对象按 Area 隔离</td><td>静态数据占比高</td></tr>
+</table>
+
+### 🟡 Redis 高可用
+
+所有通信和状态依赖 Redis，单点故障全服瘫痪。
+
+<table>
+<tr><th width="120">组件</th><th>建议</th></tr>
+<tr><td>Pub/Sub + Cache</td><td>Redis Sentinel（主从自动切换）</td></tr>
+<tr><td>Stream + Lease</td><td>Redis Cluster（分片 + 高可用）</td></tr>
+<tr><td>Lettuce 客户端</td><td>配置 topology refresh + adaptive reconnect</td></tr>
+<tr><td>降级策略</td><td>Redis 不可用时 AOI 降级为 Master 直推（已有 viewNotifier 路径）</td></tr>
+</table>
+
+### 🟡 滚动更新玩家迁移
+
+Slave 更新时需要 drain 机制，避免玩家突然断线。
+
+<table>
+<tr><th width="40">#</th><th>步骤</th></tr>
+<tr><td>1</td><td>K8s preStop hook 触发 drain</td></tr>
+<tr><td>2</td><td>停止接受新连接（从 Service endpoints 摘除）</td></tr>
+<tr><td>3</td><td>通知在线玩家客户端主动重连到其他 Slave</td></tr>
+<tr><td>4</td><td>等待 graceful period（30s）让玩家迁移</td></tr>
+<tr><td>5</td><td>强制断开剩余连接，GracefulShutdown flush Actor</td></tr>
+<tr><td>6</td><td>PlayerLocationRegistry 自动清理（TTL 过期）</td></tr>
+</table>

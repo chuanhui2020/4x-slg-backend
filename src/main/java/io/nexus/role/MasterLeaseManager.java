@@ -1,5 +1,6 @@
 package io.nexus.actor.role;
 
+import io.nexus.metrics.GameMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -13,43 +14,76 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Master 租约管理。
- * Active Master 持续续约；Standby 检测 lease 过期后抢主。
- * 每次换主 epoch 递增，关键写入带 epoch 防止旧主复活后继续写。
- */
 public class MasterLeaseManager {
 
     private static final Logger log = LoggerFactory.getLogger(MasterLeaseManager.class);
 
-    private static final Duration LEASE_TTL = Duration.ofSeconds(15);
-    private static final long HEARTBEAT_INTERVAL_MS = 5000;
+    private static final Duration LEASE_TTL = Duration.ofSeconds(30);
+    private static final long HEARTBEAT_INTERVAL_MS = 10_000;
+    private static final int MAX_RENEW_RETRIES = 3;
+    private static final long RENEW_RETRY_BASE_MS = 100;
 
     private final StringRedisTemplate redisTemplate;
     private final int serverId;
     private final String podId;
-    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicLong currentEpoch = new AtomicLong(0);
+    private final GameMetrics metrics;
     private LeaseCallback callback;
 
-    public MasterLeaseManager(StringRedisTemplate redisTemplate, int serverId, String podId) {
+    private static final String ACQUIRE_SCRIPT = """
+            local leaseKey = KEYS[1]
+            local epochKey = KEYS[2]
+            local podId = ARGV[1]
+            local ttlMs = tonumber(ARGV[2])
+            local current = redis.call('GET', leaseKey)
+            if current == false then
+                redis.call('SET', leaseKey, podId, 'PX', ttlMs)
+                return redis.call('INCR', epochKey)
+            end
+            local remainTtl = redis.call('PTTL', leaseKey)
+            if remainTtl <= 0 then
+                redis.call('SET', leaseKey, podId, 'PX', ttlMs)
+                return redis.call('INCR', epochKey)
+            end
+            return 0
+            """;
+
+    private static final String RENEW_SCRIPT = """
+            local current = redis.call('GET', KEYS[1])
+            if current == ARGV[1] then
+                redis.call('PEXPIRE', KEYS[1], ARGV[2])
+                return 1
+            end
+            return 0
+            """;
+
+    private static final String RELEASE_SCRIPT = """
+            local current = redis.call('GET', KEYS[1])
+            if current == ARGV[1] then
+                redis.call('DEL', KEYS[1])
+                return 1
+            end
+            return 0
+            """;
+
+    public MasterLeaseManager(StringRedisTemplate redisTemplate, int serverId, String podId, GameMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.serverId = serverId;
         this.podId = podId;
+        this.metrics = metrics;
     }
 
     public void setCallback(LeaseCallback callback) {
         this.callback = callback;
     }
 
-    /**
-     * 尝试获取 lease 并开始心跳。
-     */
     public void start() {
         if (tryAcquire()) {
             active.set(true);
             log.info("Acquired master lease, epoch={}", currentEpoch.get());
+            if (metrics != null) metrics.leaseEpoch().set(currentEpoch.get());
             if (callback != null) callback.onBecomeActive(currentEpoch.get());
         } else {
             log.info("Lease held by another pod, entering standby mode");
@@ -59,6 +93,11 @@ public class MasterLeaseManager {
 
     public void stop() {
         scheduler.shutdown();
+        try {
+            scheduler.awaitTermination(3, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         if (active.get()) {
             releaseLease();
             active.set(false);
@@ -76,15 +115,17 @@ public class MasterLeaseManager {
     private void heartbeat() {
         try {
             if (active.get()) {
-                if (!renew()) {
-                    log.error("Failed to renew lease, lost master role");
+                if (!renewWithRetry()) {
+                    log.error("Failed to renew lease after {} retries, lost master role", MAX_RENEW_RETRIES);
                     active.set(false);
+                    if (metrics != null) metrics.leaseRenewalFailureCounter().increment();
                     if (callback != null) callback.onLostLease();
                 }
             } else {
                 if (tryAcquire()) {
                     active.set(true);
                     log.info("Acquired master lease (failover), epoch={}", currentEpoch.get());
+                    if (metrics != null) metrics.leaseEpoch().set(currentEpoch.get());
                     if (callback != null) callback.onBecomeActive(currentEpoch.get());
                 }
             }
@@ -94,68 +135,55 @@ public class MasterLeaseManager {
     }
 
     private boolean tryAcquire() {
-        String leaseKey = leaseKey();
-        String epochKey = epochKey();
-
-        // Atomic: set lease if not exists or expired
-        Boolean acquired = redisTemplate.opsForValue().setIfAbsent(leaseKey, podId, LEASE_TTL);
-        if (Boolean.TRUE.equals(acquired)) {
-            long epoch = redisTemplate.opsForValue().increment(epochKey);
-            currentEpoch.set(epoch);
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(ACQUIRE_SCRIPT, Long.class);
+        Long result = redisTemplate.execute(redisScript,
+                List.of(leaseKey(), epochKey()),
+                podId, String.valueOf(LEASE_TTL.toMillis()));
+        if (result != null && result > 0) {
+            currentEpoch.set(result);
             return true;
         }
+        return false;
+    }
 
-        // Check if lease expired (TTL gone but key still exists due to race)
-        Long ttl = redisTemplate.getExpire(leaseKey, TimeUnit.MILLISECONDS);
-        if (ttl != null && ttl <= 0) {
-            // Try to take over with CAS-like script
-            String script = """
-                    local current = redis.call('GET', KEYS[1])
-                    if current == false or redis.call('TTL', KEYS[1]) <= 0 then
-                        redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
-                        return redis.call('INCR', KEYS[2])
-                    end
-                    return 0
-                    """;
-            DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
-            Long result = redisTemplate.execute(redisScript, List.of(leaseKey, epochKey),
-                    podId, String.valueOf(LEASE_TTL.toMillis()));
-            if (result != null && result > 0) {
-                currentEpoch.set(result);
-                return true;
+    private boolean renewWithRetry() {
+        for (int attempt = 0; attempt < MAX_RENEW_RETRIES; attempt++) {
+            var sample = (metrics != null) ? io.micrometer.core.instrument.Timer.start() : null;
+            try {
+                if (renew()) {
+                    if (sample != null && metrics != null) sample.stop(metrics.leaseRenewalTimer());
+                    return true;
+                }
+            } catch (Exception e) {
+                log.warn("Lease renewal attempt {} failed: {}", attempt + 1, e.getMessage());
+            }
+            if (attempt < MAX_RENEW_RETRIES - 1) {
+                try {
+                    Thread.sleep(RENEW_RETRY_BASE_MS * (1L << attempt));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
             }
         }
         return false;
     }
 
     private boolean renew() {
-        String leaseKey = leaseKey();
-        String script = """
-                local current = redis.call('GET', KEYS[1])
-                if current == ARGV[1] then
-                    redis.call('PEXPIRE', KEYS[1], ARGV[2])
-                    return 1
-                end
-                return 0
-                """;
-        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
-        Long result = redisTemplate.execute(redisScript, List.of(leaseKey),
+        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(RENEW_SCRIPT, Long.class);
+        Long result = redisTemplate.execute(redisScript, List.of(leaseKey()),
                 podId, String.valueOf(LEASE_TTL.toMillis()));
         return result != null && result == 1;
     }
 
     private void releaseLease() {
-        String leaseKey = leaseKey();
-        String script = """
-                local current = redis.call('GET', KEYS[1])
-                if current == ARGV[1] then
-                    redis.call('DEL', KEYS[1])
-                    return 1
-                end
-                return 0
-                """;
-        DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(script, Long.class);
-        redisTemplate.execute(redisScript, List.of(leaseKey), podId);
+        try {
+            DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(RELEASE_SCRIPT, Long.class);
+            redisTemplate.execute(redisScript, List.of(leaseKey()), podId);
+            log.info("Master lease released");
+        } catch (Exception e) {
+            log.warn("Failed to release lease on shutdown: {}", e.getMessage());
+        }
     }
 
     private String leaseKey() {

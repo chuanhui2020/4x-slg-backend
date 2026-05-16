@@ -2,6 +2,8 @@ package io.nexus.actor.grpc;
 
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.nexus.metrics.GameMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,10 +17,16 @@ public class MasterGrpcServer {
     private final int port;
     private final Server server;
 
-    public MasterGrpcServer(int port, CommandDispatcher dispatcher) {
+    public MasterGrpcServer(int port, CommandDispatcher dispatcher, GameMetrics metrics) {
         this.port = port;
-        this.server = ServerBuilder.forPort(port)
-                .addService(new MasterCommandServiceImpl(dispatcher))
+        this.server = NettyServerBuilder.forPort(port)
+                .addService(new MasterCommandServiceImpl(dispatcher, metrics))
+                .maxConcurrentCallsPerConnection(256)
+                .keepAliveTime(30, TimeUnit.SECONDS)
+                .keepAliveTimeout(5, TimeUnit.SECONDS)
+                .permitKeepAliveTime(10, TimeUnit.SECONDS)
+                .permitKeepAliveWithoutCalls(true)
+                .maxInboundMessageSize(16 * 1024 * 1024)
                 .build();
     }
 

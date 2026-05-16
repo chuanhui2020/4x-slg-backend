@@ -5,6 +5,7 @@ import io.nexus.actor.address.ActorType;
 import io.nexus.actor.registry.ActorRegistry;
 import io.nexus.actor.router.ActorRouter;
 import io.nexus.actor.serialize.RpcSerializer;
+import io.nexus.metrics.GameMetrics;
 import org.apache.pekko.actor.typed.ActorRef;
 import org.apache.pekko.actor.typed.ActorSystem;
 import org.apache.pekko.actor.typed.javadsl.AskPattern;
@@ -13,33 +14,51 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 
 public class CommandDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(CommandDispatcher.class);
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
+    private static final int MAX_CONCURRENT_DISPATCHES = 1024;
 
     private final ActorRegistry registry;
     private final ActorRouter router;
     private final RpcSerializer serializer;
     private final ActorSystem<?> system;
     private final int serverId;
+    private final Semaphore dispatchSemaphore;
+    private final GameMetrics metrics;
 
     public CommandDispatcher(ActorRegistry registry, ActorRouter router,
-                             RpcSerializer serializer, ActorSystem<?> system, int serverId) {
+                             RpcSerializer serializer, ActorSystem<?> system,
+                             int serverId, GameMetrics metrics) {
         this.registry = registry;
         this.router = router;
         this.serializer = serializer;
         this.system = system;
         this.serverId = serverId;
+        this.dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
+        this.metrics = metrics;
     }
 
     public CompletableFuture<CommandResult> dispatch(String commandType, long playerId,
                                                      String requestId, byte[] payload,
                                                      String sourcePodId, long deadlineMs) {
-        Duration timeout = deadlineMs > 0 ? Duration.ofMillis(deadlineMs) : DEFAULT_TIMEOUT;
+        if (!dispatchSemaphore.tryAcquire()) {
+            log.warn("Dispatch rejected: too many concurrent requests (max={})", MAX_CONCURRENT_DISPATCHES);
+            return CompletableFuture.completedFuture(
+                    CommandResult.failure("OVERLOADED", "Server overloaded, try again later"));
+        }
 
-        return switch (commandType) {
+        if (metrics != null) {
+            metrics.commandConcurrentDispatches().incrementAndGet();
+        }
+
+        Duration timeout = deadlineMs > 0 ? Duration.ofMillis(deadlineMs) : DEFAULT_TIMEOUT;
+        var sample = metrics != null ? io.micrometer.core.instrument.Timer.start() : null;
+
+        CompletableFuture<CommandResult> result = switch (commandType) {
             case "CREATE_MARCH" -> dispatchToMarchSupervisor(payload, playerId, sourcePodId, timeout);
             case "RECALL_MARCH" -> dispatchToMarchSupervisor(payload, playerId, sourcePodId, timeout);
             case "SPEED_UP_MARCH" -> dispatchToMarchSupervisor(payload, playerId, sourcePodId, timeout);
@@ -52,6 +71,17 @@ public class CommandDispatcher {
             default -> CompletableFuture.completedFuture(
                     CommandResult.failure("UNKNOWN_COMMAND", "Unknown command: " + commandType));
         };
+
+        return result.whenComplete((r, ex) -> {
+            dispatchSemaphore.release();
+            if (metrics != null) {
+                metrics.commandConcurrentDispatches().decrementAndGet();
+                if (sample != null) sample.stop(metrics.commandDispatchTimer());
+                if (ex != null || (r != null && !r.success())) {
+                    metrics.commandDispatchErrorCounter().increment();
+                }
+            }
+        });
     }
 
     private CompletableFuture<CommandResult> dispatchToMarchSupervisor(byte[] payload, long playerId,

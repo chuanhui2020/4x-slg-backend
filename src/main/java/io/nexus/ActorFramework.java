@@ -15,6 +15,7 @@ import io.nexus.actor.rpc.RpcMessageHandler;
 import io.nexus.actor.rpc.RpcTransport;
 import io.nexus.actor.serialize.JacksonRpcSerializer;
 import io.nexus.actor.serialize.RpcSerializer;
+import io.nexus.metrics.GameMetrics;
 import org.apache.pekko.actor.typed.ActorSystem;
 import org.apache.pekko.actor.typed.Behavior;
 import org.apache.pekko.actor.typed.javadsl.Behaviors;
@@ -35,6 +36,7 @@ public class ActorFramework {
     private final RpcSerializer serializer;
     private final RpcMessageHandler rpcMessageHandler;
     private final GracefulShutdown gracefulShutdown;
+    private final GameMetrics metrics;
 
     // Master components
     private MasterGrpcServer grpcServer;
@@ -46,7 +48,7 @@ public class ActorFramework {
 
     private ActorFramework(ActorSystem<Void> system, ActorRegistry registry, ActorRouter router,
                             ServerRoleProvider roleProvider, RpcSerializer serializer,
-                            RpcMessageHandler rpcMessageHandler) {
+                            RpcMessageHandler rpcMessageHandler, GameMetrics metrics) {
         this.system = system;
         this.registry = registry;
         this.router = router;
@@ -54,14 +56,15 @@ public class ActorFramework {
         this.serializer = serializer;
         this.rpcMessageHandler = rpcMessageHandler;
         this.gracefulShutdown = new GracefulShutdown(system);
+        this.metrics = metrics;
     }
 
-    public static ActorFramework create(RpcTransport rpcTransport) {
-        return create(rpcTransport, new ServerRoleProvider(), new JacksonRpcSerializer());
+    public static ActorFramework create(RpcTransport rpcTransport, GameMetrics metrics) {
+        return create(rpcTransport, new ServerRoleProvider(), new JacksonRpcSerializer(), metrics);
     }
 
     public static ActorFramework create(RpcTransport rpcTransport, ServerRoleProvider roleProvider,
-                                         RpcSerializer serializer) {
+                                         RpcSerializer serializer, GameMetrics metrics) {
         Behavior<Void> rootBehavior = Behaviors.empty();
         ActorSystem<Void> system = ActorSystem.create(rootBehavior, "actor-framework");
 
@@ -79,7 +82,7 @@ public class ActorFramework {
         ActorRouter router = new ActorRouter(local, remote, roleProvider);
         RpcMessageHandler rpcHandler = new RpcMessageHandler(registry, serializer);
 
-        ActorFramework framework = new ActorFramework(system, registry, router, roleProvider, serializer, rpcHandler);
+        ActorFramework framework = new ActorFramework(system, registry, router, roleProvider, serializer, rpcHandler, metrics);
         framework.grpcClient = grpcClient;
         return framework;
     }
@@ -96,8 +99,8 @@ public class ActorFramework {
         int port = portEnv != null ? Integer.parseInt(portEnv) : DEFAULT_GRPC_PORT;
 
         CommandDispatcher dispatcher = new CommandDispatcher(
-                registry, router, serializer, system, roleProvider.getServerId());
-        grpcServer = new MasterGrpcServer(port, dispatcher);
+                registry, router, serializer, system, roleProvider.getServerId(), metrics);
+        grpcServer = new MasterGrpcServer(port, dispatcher, metrics);
         grpcServer.start();
     }
 

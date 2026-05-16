@@ -2,7 +2,7 @@ package io.nexus.actor.grpc;
 
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.nexus.actor.grpc.proto.CommandRequest;
 import io.nexus.actor.grpc.proto.CommandResponse;
 import io.nexus.actor.grpc.proto.MasterCommandServiceGrpc;
@@ -26,8 +26,14 @@ public class MasterGrpcClient {
     public MasterGrpcClient(String target, int serverId, String podId) {
         this.serverId = serverId;
         this.podId = podId;
-        this.channel = ManagedChannelBuilder.forTarget(target)
+        this.channel = NettyChannelBuilder.forTarget(target)
                 .usePlaintext()
+                .keepAliveTime(30, TimeUnit.SECONDS)
+                .keepAliveTimeout(5, TimeUnit.SECONDS)
+                .keepAliveWithoutCalls(true)
+                .idleTimeout(5, TimeUnit.MINUTES)
+                .maxRetryAttempts(3)
+                .maxInboundMessageSize(16 * 1024 * 1024)
                 .build();
         this.futureStub = MasterCommandServiceGrpc.newFutureStub(channel);
         log.info("gRPC client connected to {}", target);

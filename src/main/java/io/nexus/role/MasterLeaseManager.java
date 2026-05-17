@@ -18,18 +18,18 @@ public class MasterLeaseManager {
 
     private static final Logger log = LoggerFactory.getLogger(MasterLeaseManager.class);
 
-    private static final Duration LEASE_TTL = Duration.ofSeconds(30);
-    private static final long HEARTBEAT_INTERVAL_MS = 10_000;
-    private static final int MAX_RENEW_RETRIES = 3;
-    private static final long RENEW_RETRY_BASE_MS = 100;
-
     private final StringRedisTemplate redisTemplate;
     private final int serverId;
     private final String podId;
-    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2,
+            r -> new Thread(r, "master-lease-" + Thread.currentThread().threadId()));
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicLong currentEpoch = new AtomicLong(0);
     private final GameMetrics metrics;
+    private final Duration leaseTtl;
+    private final long heartbeatIntervalMs;
+    private final int maxRenewRetries;
+    private final long renewRetryBaseMs;
     private LeaseCallback callback;
 
     private static final String ACQUIRE_SCRIPT = """
@@ -68,11 +68,17 @@ public class MasterLeaseManager {
             return 0
             """;
 
-    public MasterLeaseManager(StringRedisTemplate redisTemplate, int serverId, String podId, GameMetrics metrics) {
+    public MasterLeaseManager(StringRedisTemplate redisTemplate, int serverId, String podId,
+                               GameMetrics metrics, long leaseTtlSeconds, long heartbeatIntervalMs,
+                               int maxRenewRetries, long renewRetryBaseMs) {
         this.redisTemplate = redisTemplate;
         this.serverId = serverId;
         this.podId = podId;
         this.metrics = metrics;
+        this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
+        this.heartbeatIntervalMs = heartbeatIntervalMs;
+        this.maxRenewRetries = maxRenewRetries;
+        this.renewRetryBaseMs = renewRetryBaseMs;
     }
 
     public void setCallback(LeaseCallback callback) {
@@ -88,7 +94,7 @@ public class MasterLeaseManager {
         } else {
             log.info("Lease held by another pod, entering standby mode");
         }
-        scheduler.scheduleAtFixedRate(this::heartbeat, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        scheduler.scheduleAtFixedRate(this::heartbeat, heartbeatIntervalMs, heartbeatIntervalMs, TimeUnit.MILLISECONDS);
     }
 
     public void stop() {
@@ -116,7 +122,7 @@ public class MasterLeaseManager {
         try {
             if (active.get()) {
                 if (!renewWithRetry()) {
-                    log.error("Failed to renew lease after {} retries, lost master role", MAX_RENEW_RETRIES);
+                    log.error("Failed to renew lease after {} retries, lost master role", maxRenewRetries);
                     active.set(false);
                     if (metrics != null) metrics.leaseRenewalFailureCounter().increment();
                     if (callback != null) callback.onLostLease();
@@ -138,7 +144,7 @@ public class MasterLeaseManager {
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(ACQUIRE_SCRIPT, Long.class);
         Long result = redisTemplate.execute(redisScript,
                 List.of(leaseKey(), epochKey()),
-                podId, String.valueOf(LEASE_TTL.toMillis()));
+                podId, String.valueOf(leaseTtl.toMillis()));
         if (result != null && result > 0) {
             currentEpoch.set(result);
             return true;
@@ -147,7 +153,7 @@ public class MasterLeaseManager {
     }
 
     private boolean renewWithRetry() {
-        for (int attempt = 0; attempt < MAX_RENEW_RETRIES; attempt++) {
+        for (int attempt = 0; attempt < maxRenewRetries; attempt++) {
             var sample = (metrics != null) ? io.micrometer.core.instrument.Timer.start() : null;
             try {
                 if (renew()) {
@@ -157,9 +163,9 @@ public class MasterLeaseManager {
             } catch (Exception e) {
                 log.warn("Lease renewal attempt {} failed: {}", attempt + 1, e.getMessage());
             }
-            if (attempt < MAX_RENEW_RETRIES - 1) {
+            if (attempt < maxRenewRetries - 1) {
                 try {
-                    Thread.sleep(RENEW_RETRY_BASE_MS * (1L << attempt));
+                    Thread.sleep(renewRetryBaseMs * (1L << attempt));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return false;
@@ -172,7 +178,7 @@ public class MasterLeaseManager {
     private boolean renew() {
         DefaultRedisScript<Long> redisScript = new DefaultRedisScript<>(RENEW_SCRIPT, Long.class);
         Long result = redisTemplate.execute(redisScript, List.of(leaseKey()),
-                podId, String.valueOf(LEASE_TTL.toMillis()));
+                podId, String.valueOf(leaseTtl.toMillis()));
         return result != null && result == 1;
     }
 

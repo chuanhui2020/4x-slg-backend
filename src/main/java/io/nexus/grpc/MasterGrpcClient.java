@@ -16,16 +16,17 @@ import java.util.concurrent.TimeUnit;
 public class MasterGrpcClient {
 
     private static final Logger log = LoggerFactory.getLogger(MasterGrpcClient.class);
-    private static final long DEFAULT_DEADLINE_MS = 2000;
 
     private final ManagedChannel channel;
     private final MasterCommandServiceGrpc.MasterCommandServiceFutureStub futureStub;
     private final int serverId;
     private final String podId;
+    private final long defaultDeadlineMs;
 
-    public MasterGrpcClient(String target, int serverId, String podId) {
+    public MasterGrpcClient(String target, int serverId, String podId, long defaultDeadlineMs) {
         this.serverId = serverId;
         this.podId = podId;
+        this.defaultDeadlineMs = defaultDeadlineMs;
         this.channel = NettyChannelBuilder.forTarget(target)
                 .usePlaintext()
                 .keepAliveTime(30, TimeUnit.SECONDS)
@@ -40,7 +41,7 @@ public class MasterGrpcClient {
     }
 
     public CompletableFuture<CommandResponse> execute(String commandType, long playerId, byte[] payload) {
-        return execute(commandType, playerId, payload, DEFAULT_DEADLINE_MS);
+        return execute(commandType, playerId, payload, defaultDeadlineMs);
     }
 
     public CompletableFuture<CommandResponse> execute(String commandType, long playerId,
@@ -68,7 +69,7 @@ public class MasterGrpcClient {
             }
         }, Runnable::run);
 
-        return result;
+        return result.orTimeout(deadlineMs + 500, TimeUnit.MILLISECONDS);
     }
 
     public void shutdown() {

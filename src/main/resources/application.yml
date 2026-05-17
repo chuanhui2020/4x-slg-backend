@@ -13,3 +13,50 @@ management:
 
 server:
   port: 8080
+
+game:
+  server-id: ${SERVER_ID:1}
+  pod-id: ${POD_ID:local}
+  server-role: ${SERVER_ROLE:master}
+
+  grpc:
+    target: ${GRPC_TARGET:game-master:9090}
+    server-port: 9090
+    deadline-ms: 2000
+    max-inbound-message-size: 16777216
+    keepalive-time-seconds: 30
+    keepalive-timeout-seconds: 5
+
+  dispatch:
+    max-concurrent: 1024
+    default-timeout-ms: 5000
+
+  player:
+    max-pending-events: 200
+    flush-interval-ms: 100
+
+  lease:
+    ttl-seconds: 30
+    heartbeat-interval-ms: 10000
+    max-renew-retries: 3
+    renew-retry-base-ms: 100
+
+  redis:
+    rpc:
+      max-pending-asks: 4096
+      cleanup-interval-seconds: 30
+    location:
+      ttl-seconds: 120
+      renew-interval-seconds: 40
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+          max-wait: 2000ms

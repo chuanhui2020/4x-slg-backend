@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 可靠事件消费者。
@@ -32,7 +33,8 @@ public class ReliableEventConsumer {
     private final ActorRegistry registry;
     private final String streamKey;
     private final String consumerName;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(
+            r -> new Thread(r, "reliable-event-consumer"));
     private volatile boolean running = false;
 
     public ReliableEventConsumer(StringRedisTemplate redisTemplate, RpcSerializer serializer,
@@ -54,6 +56,14 @@ public class ReliableEventConsumer {
     public void stop() {
         running = false;
         executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void ensureConsumerGroup() {

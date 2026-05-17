@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Master Pod 的 RPC Stream 消费者（保留用于向后兼容）。
@@ -27,7 +28,8 @@ public class RedisRpcConsumer {
     private final RpcSerializer serializer;
     private final RpcMessageHandler messageHandler;
     private final String streamKey;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(
+            r -> new Thread(r, "redis-rpc-consumer"));
     private volatile boolean running = false;
     private String lastId = "0";
 
@@ -48,6 +50,14 @@ public class RedisRpcConsumer {
     public void stop() {
         running = false;
         executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     @SuppressWarnings("unchecked")

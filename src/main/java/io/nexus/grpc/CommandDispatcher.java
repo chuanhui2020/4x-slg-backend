@@ -19,8 +19,6 @@ import java.util.concurrent.Semaphore;
 public class CommandDispatcher {
 
     private static final Logger log = LoggerFactory.getLogger(CommandDispatcher.class);
-    private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
-    private static final int MAX_CONCURRENT_DISPATCHES = 1024;
 
     private final ActorRegistry registry;
     private final ActorRouter router;
@@ -29,24 +27,29 @@ public class CommandDispatcher {
     private final int serverId;
     private final Semaphore dispatchSemaphore;
     private final GameMetrics metrics;
+    private final Duration defaultTimeout;
+    private final int maxConcurrent;
 
     public CommandDispatcher(ActorRegistry registry, ActorRouter router,
                              RpcSerializer serializer, ActorSystem<?> system,
-                             int serverId, GameMetrics metrics) {
+                             int serverId, GameMetrics metrics,
+                             int maxConcurrent, long defaultTimeoutMs) {
         this.registry = registry;
         this.router = router;
         this.serializer = serializer;
         this.system = system;
         this.serverId = serverId;
-        this.dispatchSemaphore = new Semaphore(MAX_CONCURRENT_DISPATCHES);
+        this.maxConcurrent = maxConcurrent;
+        this.dispatchSemaphore = new Semaphore(maxConcurrent);
         this.metrics = metrics;
+        this.defaultTimeout = Duration.ofMillis(defaultTimeoutMs);
     }
 
     public CompletableFuture<CommandResult> dispatch(String commandType, long playerId,
                                                      String requestId, byte[] payload,
                                                      String sourcePodId, long deadlineMs) {
         if (!dispatchSemaphore.tryAcquire()) {
-            log.warn("Dispatch rejected: too many concurrent requests (max={})", MAX_CONCURRENT_DISPATCHES);
+            log.warn("Dispatch rejected: too many concurrent requests (max={})", maxConcurrent);
             return CompletableFuture.completedFuture(
                     CommandResult.failure("OVERLOADED", "Server overloaded, try again later"));
         }
@@ -55,7 +58,7 @@ public class CommandDispatcher {
             metrics.commandConcurrentDispatches().incrementAndGet();
         }
 
-        Duration timeout = deadlineMs > 0 ? Duration.ofMillis(deadlineMs) : DEFAULT_TIMEOUT;
+        Duration timeout = deadlineMs > 0 ? Duration.ofMillis(deadlineMs) : defaultTimeout;
         var sample = metrics != null ? io.micrometer.core.instrument.Timer.start() : null;
 
         CompletableFuture<CommandResult> result = switch (commandType) {

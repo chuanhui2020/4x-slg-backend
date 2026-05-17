@@ -75,7 +75,7 @@ public class ActorFramework {
         if (!roleProvider.isMaster()) {
             String masterAddr = System.getenv("MASTER_GRPC_ADDR");
             if (masterAddr == null) masterAddr = "game-master:9090";
-            grpcClient = new MasterGrpcClient(masterAddr, roleProvider.getServerId(), roleProvider.getPodId());
+            grpcClient = new MasterGrpcClient(masterAddr, roleProvider.getServerId(), roleProvider.getPodId(), 2000);
         }
 
         RemoteActorInvoker remote = new RemoteActorInvoker(rpcTransport, grpcClient, serializer);
@@ -99,7 +99,7 @@ public class ActorFramework {
         int port = portEnv != null ? Integer.parseInt(portEnv) : DEFAULT_GRPC_PORT;
 
         CommandDispatcher dispatcher = new CommandDispatcher(
-                registry, router, serializer, system, roleProvider.getServerId(), metrics);
+                registry, router, serializer, system, roleProvider.getServerId(), metrics, 1024, 5000);
         grpcServer = new MasterGrpcServer(port, dispatcher, metrics);
         grpcServer.start();
     }

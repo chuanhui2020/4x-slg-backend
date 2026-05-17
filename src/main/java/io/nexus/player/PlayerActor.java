@@ -18,9 +18,6 @@ import java.util.*;
 
 public class PlayerActor extends AbstractBehavior<PlayerMessage> {
 
-    private static final int MAX_PENDING_EVENTS = 200;
-    private static final Duration FLUSH_INTERVAL = Duration.ofMillis(100);
-
     private final TimerScheduler<PlayerMessage> timers;
     private final long playerId;
     private final PlayerSession session;
@@ -31,23 +28,27 @@ public class PlayerActor extends AbstractBehavior<PlayerMessage> {
     private final ViewThrottler viewThrottler;
     private final PlayerMessageHandler messageHandler;
     private final AoiManager aoiManager;
+    private final Duration flushInterval;
 
     private int currentSceneServerId;
 
     public static Behavior<PlayerMessage> create(long playerId, PlayerSession session, boolean isMaster,
                                                   ActorRouter router, StreamConsumer streamConsumer,
                                                   int serverId, PlayerMessageHandler messageHandler,
-                                                  AoiCalculator aoiCalculator) {
+                                                  AoiCalculator aoiCalculator,
+                                                  int maxPendingEvents, long flushIntervalMs) {
         return Behaviors.withTimers(timers ->
                 Behaviors.setup(ctx -> new PlayerActor(ctx, timers, playerId, session, isMaster,
-                        router, streamConsumer, serverId, messageHandler, aoiCalculator)));
+                        router, streamConsumer, serverId, messageHandler, aoiCalculator,
+                        maxPendingEvents, flushIntervalMs)));
     }
 
     private PlayerActor(ActorContext<PlayerMessage> context, TimerScheduler<PlayerMessage> timers,
                          long playerId, PlayerSession session, boolean isMaster,
                          ActorRouter router, StreamConsumer streamConsumer,
                          int serverId, PlayerMessageHandler messageHandler,
-                         AoiCalculator aoiCalculator) {
+                         AoiCalculator aoiCalculator,
+                         int maxPendingEvents, long flushIntervalMs) {
         super(context);
         this.timers = timers;
         this.playerId = playerId;
@@ -57,9 +58,10 @@ public class PlayerActor extends AbstractBehavior<PlayerMessage> {
         this.streamConsumer = streamConsumer;
         this.serverId = serverId;
         this.currentSceneServerId = serverId;
-        this.viewThrottler = new ViewThrottler(MAX_PENDING_EVENTS);
+        this.viewThrottler = new ViewThrottler(maxPendingEvents);
         this.messageHandler = messageHandler;
         this.aoiManager = new AoiManager(aoiCalculator);
+        this.flushInterval = Duration.ofMillis(flushIntervalMs);
     }
 
     @Override
@@ -118,7 +120,7 @@ public class PlayerActor extends AbstractBehavior<PlayerMessage> {
                 streamConsumer.subscribe(streamKey, this::handleStreamData);
             });
         }
-        timers.startTimerWithFixedDelay("flush", new PlayerMessage.FlushView(), FLUSH_INTERVAL);
+        timers.startTimerWithFixedDelay("flush", new PlayerMessage.FlushView(), flushInterval);
         return Behaviors.same();
     }
 

@@ -14,6 +14,6 @@ public interface PlayerActorFactory {
                                             int serverId, PlayerMessageHandler messageHandler,
                                             AoiCalculator aoiCalculator) {
         return PlayerActor.create(playerId, session, isMaster, router, streamConsumer,
-                serverId, messageHandler, aoiCalculator);
+                serverId, messageHandler, aoiCalculator, 200, 100);
     }
 }

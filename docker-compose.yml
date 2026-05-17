@@ -1,0 +1,50 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    ports:
+      - "8000:8000"
+    command: -jar DynamoDBLocal.jar -sharedDb
+
+  game-master:
+    build: .
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      SERVER_ID: 1
+      SERVER_ROLE: master
+      POD_ID: game-master-0
+      REDIS_HOST: redis
+      AWS_REGION: local
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      JAVA_OPTS: "-XX:+UseZGC -Xmx2g"
+    depends_on:
+      - redis
+      - dynamodb-local
+
+  game-slave:
+    build: .
+    ports:
+      - "8081:8080"
+    environment:
+      SERVER_ID: 1
+      SERVER_ROLE: slave
+      POD_ID: game-slave-a
+      REDIS_HOST: redis
+      GRPC_TARGET: game-master:9090
+      AWS_REGION: local
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      JAVA_OPTS: "-XX:+UseZGC -Xmx1g"
+    depends_on:
+      - redis
+      - game-master

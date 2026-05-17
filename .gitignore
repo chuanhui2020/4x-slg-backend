@@ -1,2 +1,28 @@
+# Claude Code
 .claude/settings.local.json
+
+# Maven
 target/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / Secrets
+.env
+*.pem
+credentials.json
+
+# Logs
+*.log
+logs/

@@ -12,109 +12,24 @@
 
 ## 架构总览
 
-```mermaid
-graph TB
-    subgraph Clients
-        C1[Client 1]
-        C2[Client 2]
-        C3[Client N]
-    end
-
-    subgraph Slave Pod A
-        SA_PA[PlayerActor 1..N]
-        SA_AOI[AOI Filter]
-    end
-
-    subgraph Slave Pod B
-        SB_PA[PlayerActor 1..N]
-        SB_AOI[AOI Filter]
-    end
-
-    subgraph Master Pod
-        direction TB
-        MS[MapSceneActor]
-        AA[AreaActor 1~196]
-        MARCH[MarchSupervisor]
-        RALLY[RallySupervisor]
-        EVENT[EventSupervisor]
-        GUILD[GuildActor]
-        MA[MarchActor *]
-        RA[RallyActor *]
-        WB[WorldBossActor]
-        GW[GuildWarActor]
-
-        MS --> AA
-        MS --> MARCH
-        MS --> RALLY
-        MS --> EVENT
-        MARCH --> MA
-        RALLY --> RA
-        EVENT --> WB
-        EVENT --> GW
-    end
-
-    subgraph Storage
-        Redis[(Redis)]
-        DDB[(DynamoDB)]
-    end
-
-    C1 --> SA_PA
-    C2 --> SA_PA
-    C3 --> SB_PA
-
-    SA_PA -->|gRPC Write| Master Pod
-    SB_PA -->|gRPC Write| Master Pod
-
-    Master Pod -->|Pub/Sub AOI| Redis
-    Redis -->|AOI Events| SA_AOI
-    Redis -->|AOI Events| SB_AOI
-    SA_AOI --> SA_PA
-    SB_AOI --> SB_PA
-
-    Master Pod -->|Stream Async| Redis
-    Redis -->|Reliable Events| SA_PA
-    Redis -->|Reliable Events| SB_PA
-
-    Master Pod --> DDB
-    Master Pod --> Redis
-```
+<p align="center">
+  <img src="https://mermaid.ink/img/Z3JhcGggVEIKICAgIHN1YmdyYXBoIENsaWVudHMKICAgICAgICBDMVtDbGllbnQgMV0KICAgICAgICBDMltDbGllbnQgMl0KICAgICAgICBDM1tDbGllbnQgTl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIFNsYXZlX1BvZF9BW1NsYXZlIFBvZCBBXQogICAgICAgIFNBX1BBW1BsYXllckFjdG9yIDEuLk5dCiAgICAgICAgU0FfQU9JW0FPSSBGaWx0ZXJdCiAgICBlbmQKCiAgICBzdWJncmFwaCBTbGF2ZV9Qb2RfQltTbGF2ZSBQb2QgQl0KICAgICAgICBTQl9QQVtQbGF5ZXJBY3RvciAxLi5OXQogICAgICAgIFNCX0FPSVtBT0kgRmlsdGVyXQogICAgZW5kCgogICAgc3ViZ3JhcGggTWFzdGVyX1BvZFtNYXN0ZXIgUG9kXQogICAgICAgIGRpcmVjdGlvbiBUQgogICAgICAgIE1TW01hcFNjZW5lQWN0b3JdCiAgICAgICAgQUFbQXJlYUFjdG9yIDF+MTk2XQogICAgICAgIE1BUkNIW01hcmNoU3VwZXJ2aXNvcl0KICAgICAgICBSQUxMWVtSYWxseVN1cGVydmlzb3JdCiAgICAgICAgRVZFTlRbRXZlbnRTdXBlcnZpc29yXQogICAgICAgIEdVSUxEW0d1aWxkQWN0b3JdCiAgICAgICAgTUFbTWFyY2hBY3RvciAqXQogICAgICAgIFJBW1JhbGx5QWN0b3IgKl0KICAgICAgICBXQltXb3JsZEJvc3NBY3Rvcl0KICAgICAgICBHV1tHdWlsZFdhckFjdG9yXQoKICAgICAgICBNUyAtLT4gQUEKICAgICAgICBNUyAtLT4gTUFSQ0gKICAgICAgICBNUyAtLT4gUkFMTFkKICAgICAgICBNUyAtLT4gRVZFTlQKICAgICAgICBNQVJDSCAtLT4gTUEKICAgICAgICBSQUxMWSAtLT4gUkEKICAgICAgICBFVkVOVCAtLT4gV0IKICAgICAgICBFVkVOVCAtLT4gR1cKICAgIGVuZAoKICAgIHN1YmdyYXBoIFN0b3JhZ2UKICAgICAgICBSZWRpc1soUmVkaXMpXQogICAgICAgIEREQlsoRHluYW1vREIpXQogICAgZW5kCgogICAgQzEgLS0+IFNBX1BBCiAgICBDMiAtLT4gU0FfUEEKICAgIEMzIC0tPiBTQl9QQQoKICAgIFNBX1BBIC0tPnxnUlBDIFdyaXRlfCBNYXN0ZXJfUG9kCiAgICBTQl9QQSAtLT58Z1JQQyBXcml0ZXwgTWFzdGVyX1BvZAoKICAgIE1hc3Rlcl9Qb2QgLS0+fFB1Yi9TdWIgQU9JfCBSZWRpcwogICAgUmVkaXMgLS0+fEFPSSBFdmVudHN8IFNBX0FPSQogICAgUmVkaXMgLS0+fEFPSSBFdmVudHN8IFNCX0FPSQogICAgU0FfQU9JIC0tPiBTQV9QQQogICAgU0JfQU9JIC0tPiBTQl9QQQoKICAgIE1hc3Rlcl9Qb2QgLS0+fFN0cmVhbSBBc3luY3wgUmVkaXMKICAgIFJlZGlzIC0tPnxSZWxpYWJsZSBFdmVudHN8IFNBX1BBCiAgICBSZWRpcyAtLT58UmVsaWFibGUgRXZlbnRzfCBTQl9QQQoKICAgIE1hc3Rlcl9Qb2QgLS0+IEREQgogICAgTWFzdGVyX1BvZCAtLT4gUmVkaXMK" alt="Architecture Overview" />
+</p>
 
 ---
 
 ## 通信架构
 
-```mermaid
-flowchart LR
-    subgraph Slave
-        Player[PlayerActor]
-    end
+<p align="center">
+  <img src="https://mermaid.ink/img/Zmxvd2NoYXJ0IExSCiAgICBzdWJncmFwaCBTbGF2ZQogICAgICAgIFBsYXllcltQbGF5ZXJBY3Rvcl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIFRyYW5zcG9ydAogICAgICAgIGdSUEN7e2dSUEN9fQogICAgICAgIFB1YlN1Ynt7UmVkaXMgUHViL1N1Yn19CiAgICAgICAgU3RyZWFte3tSZWRpcyBTdHJlYW19fQogICAgZW5kCgogICAgc3ViZ3JhcGggTWFzdGVyCiAgICAgICAgQ01EW0NvbW1hbmREaXNwYXRjaGVyXQogICAgICAgIEFyZWFbQXJlYUFjdG9yXQogICAgICAgIE1hcmNoW01hcmNoU3VwZXJ2aXNvcl0KICAgICAgICBHdWlsZFtHdWlsZEFjdG9yXQogICAgZW5kCgogICAgUGxheWVyIC0tPnxXcml0ZSBSZXF1ZXN0fCBnUlBDCiAgICBnUlBDIC0tPnxDb21tYW5kUmVxdWVzdHwgQ01ECiAgICBDTUQgLS0+fEFzayBQYXR0ZXJufCBNYXJjaAogICAgQ01EIC0tPnxBc2sgUGF0dGVybnwgR3VpbGQKICAgIENNRCAtLT58Q29tbWFuZFJlc3BvbnNlfCBnUlBDCiAgICBnUlBDIC0tPnxSZXNwb25zZXwgUGxheWVyCgogICAgQXJlYSAtLT58QU9JIGJhdGNoIDEwMG1zfCBQdWJTdWIKICAgIFB1YlN1YiAtLT58U2NlbmUgQ2hhbmdlc3wgUGxheWVyCgogICAgTWFzdGVyIC0tPnxBc3luYyBSZXN1bHRzfCBTdHJlYW0KICAgIFN0cmVhbSAtLT58UmVsaWFibGUgKyBYQUNLfCBQbGF5ZXIK" alt="Communication Architecture" />
+</p>
 
-    subgraph Transport
-        gRPC{{gRPC}}
-        PubSub{{Redis Pub/Sub}}
-        Stream{{Redis Stream}}
-    end
-
-    subgraph Master
-        CMD[CommandDispatcher]
-        Area[AreaActor]
-        March[MarchSupervisor]
-        Guild[GuildActor]
-    end
-
-    Player -->|"写请求 (CREATE_MARCH, JOIN_GUILD...)"| gRPC
-    gRPC -->|CommandRequest| CMD
-    CMD -->|Ask Pattern| March
-    CMD -->|Ask Pattern| Guild
-    CMD -->|CommandResponse| gRPC
-    gRPC -->|"结果返回"| Player
-
-    Area -->|"AOI batch (100ms)"| PubSub
-    PubSub -->|"场景变化"| Player
-
-    Master -->|"异步结果 (行军到达, 战斗结算)"| Stream
-    Stream -->|"可靠投递 + XACK"| Player
-```
+| 方向 | 方式 | 用途 |
+|------|------|------|
+| Slave → Master | gRPC | 写请求（CREATE_MARCH, JOIN_GUILD, ATTACK...） |
+| Master → Slave (即时) | gRPC Response | 请求内直接返回结果 |
+| Master → Slave (异步) | Redis Stream | 行军到达、战斗结算等异步结果 |
+| AOI 场景变化 | Redis Pub/Sub | batch 广播，fire-and-forget |
 
 ---
 
@@ -132,59 +47,29 @@ flowchart LR
 
 ---
 
-## 核心模块
-
-```mermaid
-graph LR
-    subgraph 路由层
-        Router[ActorRouter]
-        Local[LocalActorInvoker]
-        Remote[RemoteActorInvoker]
-    end
-
-    subgraph 传输层
-        gRPC_C[MasterGrpcClient]
-        gRPC_S[MasterGrpcServer]
-        RPC_T[RedisRpcTransport]
-    end
-
-    subgraph Actor 层
-        PA[PlayerActor]
-        GA[GuildActor]
-        AA2[AreaActor]
-        MA2[MarchActor]
-        RA2[RallyActor]
-    end
-
-    subgraph 基础设施
-        Registry[ActorRegistry]
-        Lease[MasterLeaseManager]
-        Loc[PlayerLocationRegistry]
-        Metrics[GameMetrics]
-    end
-
-    Router --> Local
-    Router --> Remote
-    Remote --> gRPC_C
-    Remote --> RPC_T
-    gRPC_S --> Registry
-```
-
----
-
 ## 核心特性
 
 ### AOI 视野系统
 
 地图 1000x1000 格子，划分为 196 个区域（14x14 布局，每区域 75x75）。
 
-```mermaid
-flowchart TD
-    A[AreaActor Tick 100ms] -->|聚合变化| B[Batch ViewEvents]
-    B -->|同对象多次变化只保留最后一次| C[Redis Pub/Sub]
-    C --> D[Slave 订阅相关 Area]
-    D --> E[Grid 级精确过滤]
-    E --> F[推送给视野内玩家]
+```
+AreaActor Tick (100ms)
+    │
+    ▼
+聚合变化（同对象多次变化只保留最后一次）
+    │
+    ▼
+Redis Pub/Sub 按 Area 发布 batch
+    │
+    ▼
+Slave 订阅相关 Area Channel
+    │
+    ▼
+Grid 级精确过滤（只推送视野内事件）
+    │
+    ▼
+推送给客户端
 ```
 
 - 视口订阅：玩家 openMap 时按视口范围订阅 Area
@@ -198,31 +83,18 @@ MarchActor 不使用定时 tick，出发时计算完整路径和到达时间，�
 ### 集结系统（状态机）
 
 ```
-WAITING → MARCHING → BATTLING → RETURNING → DISMISSED
+WAITING ──→ MARCHING ──→ BATTLING ──→ RETURNING ──→ DISMISSED
+   │                                                    ▲
+   └────────────────── Dismiss ─────────────────────────┘
 ```
 
 RallyActor 使用 Pekko Typed Behavior 切换实现多阶段状态机，每个阶段只处理该阶段合法的消息。
 
 ### Master Lease 高可用
 
-```mermaid
-sequenceDiagram
-    participant Active as Active Master
-    participant Redis as Redis (Lease)
-    participant Standby as Standby Master
-
-    Active->>Redis: SET master_lease PX 30000
-    loop 每 10s
-        Active->>Redis: PEXPIRE (续约)
-        Redis-->>Active: OK
-    end
-    Note over Active: 进程崩溃
-    Standby->>Redis: GET master_lease
-    Note over Standby: 发现 TTL 过期
-    Standby->>Redis: SET + INCR epoch
-    Redis-->>Standby: epoch=43
-    Note over Standby: 成为新 Active
-```
+<p align="center">
+  <img src="https://mermaid.ink/img/c2VxdWVuY2VEaWFncmFtCiAgICBwYXJ0aWNpcGFudCBBY3RpdmUgYXMgQWN0aXZlIE1hc3RlcgogICAgcGFydGljaXBhbnQgUmVkaXMgYXMgUmVkaXMgTGVhc2UKICAgIHBhcnRpY2lwYW50IFN0YW5kYnkgYXMgU3RhbmRieSBNYXN0ZXIKCiAgICBBY3RpdmUtPj5SZWRpczogU0VUIG1hc3Rlcl9sZWFzZSBQWCAzMDAwMAogICAgbG9vcCBFdmVyeSAxMHMKICAgICAgICBBY3RpdmUtPj5SZWRpczogUEVYUElSRSByZW5ldwogICAgICAgIFJlZGlzLS0+PkFjdGl2ZTogT0sKICAgIGVuZAogICAgTm90ZSBvdmVyIEFjdGl2ZTogUHJvY2VzcyBjcmFzaAogICAgU3RhbmRieS0+PlJlZGlzOiBHRVQgbWFzdGVyX2xlYXNlCiAgICBOb3RlIG92ZXIgU3RhbmRieTogVFRMIGV4cGlyZWQKICAgIFN0YW5kYnktPj5SZWRpczogU0VUICsgSU5DUiBlcG9jaAogICAgUmVkaXMtLT4+U3RhbmRieTogZXBvY2g9NDMKICAgIE5vdGUgb3ZlciBTdGFuZGJ5OiBCZWNvbWUgQWN0aXZlCg==" alt="Master Lease Failover" />
+</p>
 
 ---
 
@@ -255,25 +127,9 @@ sequenceDiagram
 
 ## 部署模型
 
-```mermaid
-graph TB
-    subgraph Kubernetes Cluster
-        subgraph StatefulSet
-            M[Master Pod<br/>SERVER_ROLE=master<br/>CPU 2-4 / Mem 4-8Gi]
-        end
-        subgraph Deployment - HPA
-            S1[Slave Pod 1<br/>SERVER_ROLE=slave]
-            S2[Slave Pod 2<br/>SERVER_ROLE=slave]
-            S3[Slave Pod N<br/>SERVER_ROLE=slave]
-        end
-        SVC[game-master Service :9090]
-    end
-
-    S1 --> SVC
-    S2 --> SVC
-    S3 --> SVC
-    SVC --> M
-```
+<p align="center">
+  <img src="https://mermaid.ink/img/Z3JhcGggVEIKICAgIHN1YmdyYXBoIEs4c1tLdWJlcm5ldGVzIENsdXN0ZXJdCiAgICAgICAgc3ViZ3JhcGggU1NbU3RhdGVmdWxTZXRdCiAgICAgICAgICAgIE1bTWFzdGVyIFBvZApTRVJWRVJfUk9MRT1tYXN0ZXIKQ1BVIDItNCAvIE1lbSA0LThHaV0KICAgICAgICBlbmQKICAgICAgICBzdWJncmFwaCBEZXBsb3lbRGVwbG95bWVudCAtIEhQQV0KICAgICAgICAgICAgUzFbU2xhdmUgUG9kIDEKU0VSVkVSX1JPTEU9c2xhdmVdCiAgICAgICAgICAgIFMyW1NsYXZlIFBvZCAyClNFUlZFUl9ST0xFPXNsYXZlXQogICAgICAgICAgICBTM1tTbGF2ZSBQb2QgTgpTRVJWRVJfUk9MRT1zbGF2ZV0KICAgICAgICBlbmQKICAgICAgICBTVkNbZ2FtZS1tYXN0ZXIgU2VydmljZSA6OTA5MF0KICAgIGVuZAoKICAgIFMxIC0tPiBTVkMKICAgIFMyIC0tPiBTVkMKICAgIFMzIC0tPiBTVkMKICAgIFNWQyAtLT4gTQo=" alt="Deployment Model" />
+</p>
 
 | 角色 | 副本数 | 环境变量 | 资源 | 部署策略 |
 |------|--------|----------|------|----------|
